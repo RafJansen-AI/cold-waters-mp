@@ -318,6 +318,15 @@ namespace ColdWatersMP
             catch (System.Exception ex) { Duel.Log("Could not widen the sub choice: " + ex.Message); }
         }
 
+        /// <summary>single001 also lists player surface ships (..._pl) and a test ship, all typed SUBMARINE. Keep real
+        /// submarines only: names like wp_84_ssn_alfa, knm_68_ss_kobben (third part ss, ssn, ssk, ssbn, ssgn ...).</summary>
+        static bool IsRealSub(string name)
+        {
+            if (name == null || name.EndsWith("_pl")) return false;
+            string[] p = name.Split('_');
+            return p.Length >= 3 && p[2].StartsWith("ss");
+        }
+
         /// <summary>Every selectable submarine (single001's PlayerVessels), for the sub choice and the ID book.</summary>
         public static int[] AllSubs()
         {
@@ -339,7 +348,7 @@ namespace ColdWatersMP
                     int id = tp.GetShipID(n);
                     if (id < 0 || id >= UIFunctions.globaluifunctions.database.databaseshipdata.Length) continue;
                     DatabaseShipData d = UIFunctions.globaluifunctions.database.databaseshipdata[id];
-                    if (d != null && d.shipType == "SUBMARINE") ids.Add(id);
+                    if (d != null && d.shipType == "SUBMARINE" && IsRealSub(d.shipPrefabName)) ids.Add(id);
                 }
             }
             return ids.ToArray();

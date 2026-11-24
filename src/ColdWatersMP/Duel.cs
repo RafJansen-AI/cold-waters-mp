@@ -301,26 +301,33 @@ namespace ColdWatersMP
 
         /// <summary>The ID book (signatures, recognition manual, classification) comes from the mission's OtherVessels
         /// list, so a Chinese map gives a Chinese book and a NATO duel may have no NATO subs in it. For a duel, use the
-        /// opponent's navy instead: every selectable submarine whose name starts with the same nation (wp_, usn_,
-        /// plan_, uk_ ...), all periods, always including their real class. The next mission load fills it again, so
+        /// opponent's navy instead: every selectable submarine of the same side (Soviet/Chinese, or NATO
+        /// and allies), all periods, always including their real class. The next mission load fills it again, so
         /// single player keeps its own books.</summary>
+        /// <summary>Book group: Soviet and Chinese (wp, plan; the game's South China Sea book mixes them too), or NATO and
+        /// allies (usn, uk, knm, rnn, aus ...), so a small navy's book doesn't give its one class away.</summary>
+        static string Side(string prefab)
+        {
+            string n = prefab.Split('_')[0];
+            return (n == "wp" || n == "plan") ? "Soviet/Chinese" : "NATO";
+        }
+
         static void SetIdBook(int oppCls)
         {
             try
             {
                 PlayerFunctions pf = UIFunctions.globaluifunctions.playerfunctions;
                 DatabaseShipData[] db = UIFunctions.globaluifunctions.database.databaseshipdata;
-                string name = db[oppCls].shipPrefabName;
-                string nation = name.Split('_')[0] + "_";
+                string side = Side(db[oppCls].shipPrefabName);
                 List<int> book = new List<int>();
                 int[] all = Patch_PopulateLevelLoadData_AllSubs.AllSubs();
                 if (all != null)
                     foreach (int id in all)
-                        if (db[id].shipPrefabName.StartsWith(nation) && !book.Contains(id)) book.Add(id);
+                        if (Side(db[id].shipPrefabName) == side && !book.Contains(id)) book.Add(id);
                 if (!book.Contains(oppCls)) book.Add(oppCls);
                 pf.otherVesselList = book.ToArray();
                 pf.currentSignatureIndex = 0; // used as a position in the list without a bounds check
-                Log("ID book: " + book.Count + " " + nation.TrimEnd('_') + " submarines");
+                Log("ID book: " + book.Count + " " + side + " submarines");
             }
             catch (System.Exception ex) { Log("ID book not changed: " + ex.Message); }
         }
