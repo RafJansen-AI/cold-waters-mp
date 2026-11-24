@@ -115,7 +115,7 @@ namespace ColdWatersMP
             if (heard <= 10f) { Duel.Log("Launch transient not heard (" + heard.ToString("F1") + ")"); return; }
             Transform nav = own.acoustics.sensorNavigator.transform;
             nav.LookAt(firer.transform.position);
-            float brg = nav.localEulerAngles.y;
+            float brg = nav.eulerAngles.y; // true bearing, as in the TorpedoInTheWater callout (the AI-launch code uses local)
             if (brg < 0f) brg += 360f;
             string msg;
             if (sm.detectedByPlayer[firer.vesselListIndex])
