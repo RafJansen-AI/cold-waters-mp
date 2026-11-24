@@ -11,7 +11,7 @@ namespace ColdWatersMP
     [BepInPlugin("cwmp", "Cold Waters MP", PluginVersion)]
     public class CwmpPlugin : BaseUnityPlugin
     {
-        public const string PluginVersion = "0.0.25";
+        public const string PluginVersion = "0.0.26";
 
         ConfigEntry<string> _role, _hostAddress, _playerName, _fakeHash;
         ConfigEntry<int> _port;
@@ -25,6 +25,7 @@ namespace ColdWatersMP
         ConfigEntry<int> _overlayCfg;
         ConfigEntry<int> _cond, _weather, _sea, _layer, _duct, _time;
         ConfigEntry<bool> _pauseBoth, _allowTC;
+        ConfigEntry<bool> _reducedVis;
         Rect _settingsRect = new Rect(540, 10, 470, 520);
         readonly List<string> _logLines = new List<string>();
 
@@ -48,6 +49,7 @@ namespace ColdWatersMP
             _time = Config.Bind("Match", "Time", 0, "Host, custom: 0 random, 1 dawn, 2 day, 3 dusk, 4 night");
             _pauseBoth = Config.Bind("Match", "PauseBoth", false, "Host: true = the Esc menu pauses both games; false = no pausing");
             _allowTC = Config.Bind("Match", "TimeCompression", true, "Host: allow time compression when both players ask for it");
+            _reducedVis = Config.Bind("Match", "ReducedVisibility", true, "Host: DotMod Reduced Visibility (denser underwater fog) for both players; false = clear water");
             LoadMatchSettings();
             _overlayCfg = Config.Bind("Display", "Overlay", 1, "0 = full (testing), 1 = compact one-liner, 2 = off. Ctrl+F9 cycles.");
             Duel.RangeMinNm = _rangeMin.Value; Duel.RangeMaxNm = _rangeMax.Value;
@@ -118,6 +120,7 @@ namespace ColdWatersMP
             try { Duel.Update(); }
             catch (System.Exception ex) { Log("Duel error: " + ex); }
             try { SnowFix(); } catch (System.Exception) { }
+            try { Match.HoldVisibility(); } catch (System.Exception) { }
         }
 
         /// <summary>The game switches snow on in GetEnvironment, then CreateEnvironment switches it off again and
@@ -138,7 +141,7 @@ namespace ColdWatersMP
             Match.Conditions = (Match.CondMode)Mathf.Clamp(_cond.Value, 0, 2);
             Match.Weather = _weather.Value; Match.SeaState = _sea.Value; Match.Layer = _layer.Value;
             Match.Duct = _duct.Value; Match.TimeChoice = _time.Value;
-            Match.HostPauseBoth = _pauseBoth.Value; Match.HostAllowTC = _allowTC.Value;
+            Match.HostPauseBoth = _pauseBoth.Value; Match.HostAllowTC = _allowTC.Value; Match.HostReducedVisibility = _reducedVis.Value;
         }
 
         void SaveMatchSettings()
@@ -146,7 +149,7 @@ namespace ColdWatersMP
             _cond.Value = (int)Match.Conditions; _weather.Value = Match.Weather; _sea.Value = Match.SeaState;
             _layer.Value = Match.Layer; _duct.Value = Match.Duct; _time.Value = Match.TimeChoice;
             _rangeMin.Value = Duel.RangeMinNm; _rangeMax.Value = Duel.RangeMaxNm;
-            _pauseBoth.Value = Match.HostPauseBoth; _allowTC.Value = Match.HostAllowTC;
+            _pauseBoth.Value = Match.HostPauseBoth; _allowTC.Value = Match.HostAllowTC; _reducedVis.Value = Match.HostReducedVisibility;
         }
 
         /// <summary>One "&lt; value &gt;" row; returns the new index.</summary>
@@ -159,6 +162,22 @@ namespace ColdWatersMP
             if (GUILayout.Button(">", GUILayout.Width(28))) value = (value + 1) % count;
             GUILayout.EndHorizontal();
             return value;
+        }
+
+        static string _ownAddresses;
+        /// <summary>This PC's IPv4 addresses (LAN and VPN adapters), looked up once.</summary>
+        static string OwnAddresses()
+        {
+            if (_ownAddresses != null) return _ownAddresses;
+            List<string> list = new List<string>();
+            try
+            {
+                foreach (System.Net.IPAddress a in System.Net.Dns.GetHostAddresses(System.Net.Dns.GetHostName()))
+                    if (a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && !System.Net.IPAddress.IsLoopback(a)) list.Add(a.ToString());
+            }
+            catch (System.Exception) { }
+            _ownAddresses = list.Count > 0 ? string.Join(", ", list.ToArray()) : "unknown (see your VPN tool)";
+            return _ownAddresses;
         }
 
         /// <summary>Connection part of the multiplayer window: role, address, name, connect.</summary>
@@ -178,7 +197,9 @@ namespace ColdWatersMP
                 GUILayout.Label("Host address", GUILayout.Width(110));
                 _hostAddress.Value = GUILayout.TextField(_hostAddress.Value, 64, GUILayout.Width(200));
                 GUILayout.EndHorizontal();
+                GUILayout.Label("The host's LAN or VPN address (Tailscale, ZeroTier, Radmin VPN ...). The host sees it in this window.");
             }
+            else GUILayout.Label("Your addresses (give one to the client): " + OwnAddresses());
             GUILayout.BeginHorizontal();
             if (GUILayout.Button(connected ? "Reconnect" : (host ? "Start hosting" : "Join"), GUILayout.Width(150))) { _session.Leave(); StartSession(); }
             if (GUILayout.Button("Close", GUILayout.Width(100))) _showSettings = false;
@@ -195,7 +216,7 @@ namespace ColdWatersMP
                 GUILayout.Label("The host picks the map and conditions.");
                 GUILayout.Label(Match.HaveHostMatch ? "Host's match: " + Match.LastSummary : "Nothing from the host yet: it arrives when the host starts its mission.");
                 GUILayout.Label("Pick any mission and your sub as usual; the host's map replaces your mission's.");
-                if (Match.HaveHostMatch) GUILayout.Label("Pause: " + (Match.PauseBoth ? "Esc pauses both" : "blocked") + ". Time compression: " + (Match.TimeCompressionAllowed ? "when both ask" : "off") + ".");
+                if (Match.HaveHostMatch) GUILayout.Label("Pause: " + (Match.PauseBoth ? "Esc pauses both" : "blocked") + ". Time compression: " + (Match.TimeCompressionAllowed ? "when both ask" : "off") + ". Reduced Visibility: " + (Match.ReducedVisibility ? "on" : "off") + ".");
                 GUI.DragWindow();
                 return;
             }
@@ -216,16 +237,20 @@ namespace ColdWatersMP
                 Match.Duct = Stepper("Surface duct", Mathf.Clamp(Match.Duct, 0, str.Length), str.Length + 1, Match.Duct == 0 ? "Random" : Match.Name(str, Match.Duct - 1));
                 Match.TimeChoice = Stepper("Time", Mathf.Clamp(Match.TimeChoice, 0, 4), 5, Match.TimeNames[Mathf.Clamp(Match.TimeChoice, 0, 4)]);
             }
-            // Start range band, whole nm (the actual range is random inside it and not shown to anyone).
-            int lo = Mathf.RoundToInt(Duel.RangeMinNm), hi = Mathf.RoundToInt(Duel.RangeMaxNm);
-            int nlo = Stepper("Range from", lo - 1, 20, lo + " nm") + 1;
-            int nhi = Stepper("Range to", hi - 1, 25, hi + " nm") + 1;
-            if (nlo != lo) { Duel.RangeMinNm = nlo; if (Duel.RangeMaxNm < nlo) Duel.RangeMaxNm = nlo; }
-            if (nhi != hi) { Duel.RangeMaxNm = nhi; if (Duel.RangeMinNm > nhi) Duel.RangeMinNm = nhi; }
-            bool pb = Match.HostPauseBoth, tc = Match.HostAllowTC;
+            // Start range band, in the game's units (kyd, or km with the metric option); stored in nm. The actual
+            // range is random inside the band and not shown to anyone.
+            bool metric = AddFields.metricSystem;
+            float perNm = metric ? 1.852f : 2.0254f; string unit = metric ? " km" : " kyd";
+            int lo = System.Math.Max(1, Mathf.RoundToInt(Duel.RangeMinNm * perNm)), hi = System.Math.Max(1, Mathf.RoundToInt(Duel.RangeMaxNm * perNm));
+            int nlo = Stepper("Range from", lo - 1, 40, lo + unit) + 1;
+            int nhi = Stepper("Range to", hi - 1, 50, hi + unit) + 1;
+            if (nlo != lo) { Duel.RangeMinNm = nlo / perNm; if (Duel.RangeMaxNm < Duel.RangeMinNm) Duel.RangeMaxNm = Duel.RangeMinNm; }
+            if (nhi != hi) { Duel.RangeMaxNm = nhi / perNm; if (Duel.RangeMinNm > Duel.RangeMaxNm) Duel.RangeMinNm = Duel.RangeMaxNm; }
+            bool pb = Match.HostPauseBoth, tc = Match.HostAllowTC, rv = Match.HostReducedVisibility;
             Match.HostPauseBoth = Stepper("Pause", Match.HostPauseBoth ? 1 : 0, 2, Match.HostPauseBoth ? "Esc pauses both" : "Blocked") == 1;
             Match.HostAllowTC = Stepper("Time compr.", Match.HostAllowTC ? 1 : 0, 2, Match.HostAllowTC ? "When both ask" : "Off") == 1;
-            if (pb != Match.HostPauseBoth || tc != Match.HostAllowTC) rangeBefore = -1f; // force a save
+            Match.HostReducedVisibility = Stepper("Visibility", Match.HostReducedVisibility ? 1 : 0, 2, Match.HostReducedVisibility ? "Reduced Visibility on" : "Reduced Visibility off") == 1;
+            if (pb != Match.HostPauseBoth || tc != Match.HostAllowTC || rv != Match.HostReducedVisibility) rangeBefore = -1f; // force a save
             GUILayout.Label("Difficulty: yours (set it in the game options); the client uses it too.");
             GUILayout.Label("Neutral traffic: off (not synced yet). Settings apply from the next mission start.");
             if (Match.LastSummary.Length > 0) GUILayout.Label("Last match: " + Match.LastSummary);

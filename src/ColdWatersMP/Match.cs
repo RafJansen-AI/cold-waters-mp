@@ -23,10 +23,46 @@ namespace ColdWatersMP
         public static int TimeChoice = 0;   // 0 random, 1 dawn, 2 day, 3 dusk, 4 night
         public static bool HostPauseBoth = false;  // host setting: Esc menu pauses both games (else pause is blocked)
         public static bool HostAllowTC = true;     // host setting: time compression by mutual agreement
+        public static bool HostReducedVisibility = true; // host setting: DotMod's Reduced Visibility (denser underwater fog) for both
+        static bool _matchReducedVis = true, _clientReducedVis = true;
+        static bool _haveSavedFog, _savedFogAlt, _savedDevFog, _visInForce;
+
+        /// <summary>Both games use the host's underwater visibility for the match (clearer water is an advantage).
+        /// DotMod: fogDensityAlt = !reducedVisibility. The player's own setting comes back afterwards.</summary>
+        static void ApplyVisibility(bool reduced)
+        {
+            LevelLoadManager llm = UIFunctions.globaluifunctions != null ? UIFunctions.globaluifunctions.levelloadmanager : null;
+            if (llm == null) return;
+            if (!_haveSavedFog) { _savedFogAlt = llm.fogDensityAlt; _savedDevFog = DevMode.overrideFogDensity; _haveSavedFog = true; }
+            _visInForce = reduced;
+            HoldVisibility();
+            Duel.Log("Reduced Visibility for this match: " + (reduced ? "on" : "off") + " (host's setting)");
+        }
+
+        /// <summary>Every frame in a match: keep the match value (the DotMod options toggle could change it mid-game),
+        /// and keep DotMod's dev-mode fog override off.</summary>
+        public static void HoldVisibility()
+        {
+            if (!_haveSavedFog) return;
+            LevelLoadManager llm = UIFunctions.globaluifunctions != null ? UIFunctions.globaluifunctions.levelloadmanager : null;
+            if (llm == null) return;
+            if (llm.fogDensityAlt == _visInForce) llm.fogDensityAlt = !_visInForce;
+            if (DevMode.overrideFogDensity) DevMode.overrideFogDensity = false;
+        }
+
+        static void RestoreVisibility()
+        {
+            if (!_haveSavedFog) return;
+            LevelLoadManager llm = UIFunctions.globaluifunctions != null ? UIFunctions.globaluifunctions.levelloadmanager : null;
+            if (llm != null) llm.fogDensityAlt = _savedFogAlt;
+            DevMode.overrideFogDensity = _savedDevFog;
+            _haveSavedFog = false;
+        }
         static bool _clientPauseBoth, _clientAllowTC = true;
         /// <summary>The setting in force: the host's own, or what the host sent us.</summary>
         static bool _matchPauseBoth, _matchAllowTC = true; // host: the values sent with the current match
         public static bool PauseBoth { get { return Duel.Session != null && !Duel.Session.IsHost ? _clientPauseBoth : _matchPauseBoth; } }
+        public static bool ReducedVisibility { get { return Duel.Session != null && !Duel.Session.IsHost ? _clientReducedVis : _matchReducedVis; } }
         public static bool TimeCompressionAllowed { get { return Duel.Session != null && !Duel.Session.IsHost ? _clientAllowTC : _matchAllowTC; } }
         public static readonly string[] TimeNames = { "Random", "Dawn", "Day", "Dusk", "Night" };
         static readonly int[] TimeHours = { -1, 7, 12, 17, 1 };
@@ -117,7 +153,8 @@ namespace ColdWatersMP
             ClearHazards(d);
             _lastSent = Take(d);
             _lastSentSeq = ++_sentSeq;
-            _matchPauseBoth = HostPauseBoth; _matchAllowTC = HostAllowTC;
+            _matchPauseBoth = HostPauseBoth; _matchAllowTC = HostAllowTC; _matchReducedVis = HostReducedVisibility;
+            ApplyVisibility(_matchReducedVis);
             SendLast();
         }
 
@@ -130,11 +167,11 @@ namespace ColdWatersMP
         static void SendLast()
         {
             Snapshot s = _lastSent; int seq = _lastSentSeq;
-            bool pause = _matchPauseBoth, tc = _matchAllowTC;
+            bool pause = _matchPauseBoth, tc = _matchAllowTC, vis = _matchReducedVis;
             Dictionary<string, float> diff = OptionsManager.difficultySettings != null ? new Dictionary<string, float>(OptionsManager.difficultySettings) : new Dictionary<string, float>();
             Duel.Session.SendGame(G_MATCH, w =>
             {
-                w.Write(seq); Write(w, s); w.Write(pause); w.Write(tc);
+                w.Write(seq); Write(w, s); w.Write(pause); w.Write(tc); w.Write(vis);
                 w.Write(diff.Count);
                 foreach (KeyValuePair<string, float> kv in diff) { w.Write(kv.Key); w.Write(kv.Value); }
             }, true);
@@ -149,6 +186,7 @@ namespace ColdWatersMP
             Apply(_host, d);
             AppliedSeq = _hostSeq;
             ApplyHostDifficulty();
+            ApplyVisibility(_clientReducedVis);
             LastSummary = Describe(_host);
             Duel.Log("Match applied from host: " + LastSummary);
         }
@@ -175,6 +213,7 @@ namespace ColdWatersMP
         /// <summary>Mission over: give the client its own difficulty back.</summary>
         public static void RestoreLocalDifficulty()
         {
+            RestoreVisibility();
             if (_savedDifficulty == null || OptionsManager.difficultySettings == null) return;
             foreach (KeyValuePair<string, float> kv in _savedDifficulty) OptionsManager.difficultySettings[kv.Key] = kv.Value;
             _savedDifficulty = null;
@@ -226,13 +265,13 @@ namespace ColdWatersMP
             if (type != G_MATCH) return false;
             int seq = r.ReadInt32();
             Snapshot s = Read(r);
-            bool pause = r.ReadBoolean(), tc = r.ReadBoolean();
+            bool pause = r.ReadBoolean(), tc = r.ReadBoolean(), vis = r.ReadBoolean();
             int n = r.ReadInt32();
             Dictionary<string, float> diff = new Dictionary<string, float>();
             for (int i = 0; i < n; i++) { string k = r.ReadString(); diff[k] = r.ReadSingle(); }
             if (Duel.Session.IsHost) return true; // only the host decides
             _hostDifficulty = diff;
-            _clientPauseBoth = pause; _clientAllowTC = tc;
+            _clientPauseBoth = pause; _clientAllowTC = tc; _clientReducedVis = vis;
             _host = s; _hostSeq = seq; _haveHostMatch = true;
             HostMapName = s.MissionName;
             Duel.Log("Host picked " + Describe(s));

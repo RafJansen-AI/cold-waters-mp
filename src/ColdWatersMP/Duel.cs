@@ -288,7 +288,7 @@ namespace ColdWatersMP
                 }, true);
                 _placeOwnPos = hp; _placeOwnHeading = hh; _placeOppPos = cp; _placeOppHeading = ch; _havePlacement = true; _placeSeq = seq;
                 Log("~Duel: placed opponent " + range.ToString("F1") + " nm away, bearing " + Mathf.Repeat(bearing, 360f).ToString("F0"));
-                Log("Duel: start positions set (range " + RangeMinNm.ToString("0.#") + "-" + RangeMaxNm.ToString("0.#") + " nm)");
+                Log("Duel: start positions set (random range in the host's band)");
             }
             ApplyPlacement();
             Session.SendGame(G_INMISSION, w => w.Write(true), true);
