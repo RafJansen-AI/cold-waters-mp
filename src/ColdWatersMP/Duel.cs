@@ -23,6 +23,28 @@ namespace ColdWatersMP
         public static int OppClass = -1;
         public static string OppClassName = "";
         public static bool OppRunningSilent;
+        public static bool OppActiveSonar;
+        static float _pingTimer;
+        static float _diagTimer;
+
+        /// <summary>Every 10 s: what our sonar makes of the opponent (to chase one-sided detection).</summary>
+        static void LogSonarDiagnostics()
+        {
+            try
+            {
+                SensorManager sm = UIFunctions.globaluifunctions.playerfunctions.sensormanager;
+                int i = Puppet.vesselListIndex;
+                Vessel own = GameDataManager.playervesselsonlevel[0];
+                float rangeKyd = Vector3.Distance(own.transform.position, Puppet.transform.position) * GameDataManager.yardsScale / 1000f;
+                Log("SONAR range " + rangeKyd.ToString("F1") + " kyd | we hear them " + sm.signalLastPassiveReading[i].ToString("F1")
+                    + " (threshold " + sm.detectionThresholds.x.ToString("F1") + "), detected " + sm.detectedByPlayer[i]
+                    + " | their silent " + OppRunningSilent + ", active " + OppActiveSonar + ", speed " + (Puppet.vesselmovement.shipSpeed.z * 10f).ToString("F0") + " kt"
+                    + " | our active " + own.acoustics.usingActiveSonar
+                    + " | ENV ambient " + sm.currentOceanAmbientNoise.ToString("F1") + ", layer " + sm.layerDepthInFeet.ToString("F0") + " ft str " + sm.layerStrength.ToString("F2")
+                    + ", duct " + sm.surfaceDuctStrength.ToString("F2") + ", sea " + sm.seaState);
+            }
+            catch (System.Exception ex) { Log("SONAR diagnostics failed: " + ex.Message); }
+        }
         public static float OppRpgSelfNoiseBonus;
         public static bool OppInMission;
 
@@ -41,7 +63,7 @@ namespace ColdWatersMP
         public static bool WaitingForOpponentChoice { get { return _heldLoad != null; } }
 
         // Latest two opponent states, for extrapolation
-        struct SubState { public float T; public Vector3 Pos; public Vector3 Euler; public float SpeedZ; public int Telegraph; public Vector2 Rudder; public Vector2 Ballast; public bool Cav; public bool Silent; public bool Submerged; }
+        struct SubState { public float T; public Vector3 Pos; public Vector3 Euler; public float SpeedZ; public int Telegraph; public Vector2 Rudder; public Vector2 Ballast; public bool Cav; public bool Silent; public bool Submerged; public bool Active; }
         static SubState _s0, _s1;
         static float _s1LocalTime;
         static int _stateCount;
@@ -246,6 +268,9 @@ namespace ColdWatersMP
             if (!InDuel || !Active) return;
             if (Puppet == null || GameDataManager.playervesselsonlevel == null || GameDataManager.playervesselsonlevel.Length == 0) return;
 
+            _diagTimer += Time.unscaledDeltaTime;
+            if (_diagTimer >= 10f) { _diagTimer = 0f; LogSonarDiagnostics(); }
+
             _sendTimer += Time.unscaledDeltaTime;
             if (_sendTimer >= 0.1f)
             {
@@ -269,6 +294,7 @@ namespace ColdWatersMP
                 w.Write(m.rudderAngle.x); w.Write(m.rudderAngle.y);
                 w.Write(m.ballastAngle.x); w.Write(m.ballastAngle.y);
                 w.Write(m.isCavitating); w.Write(silent); w.Write(v.submerged);
+                w.Write(v.acoustics.usingActiveSonar);
             }, false);
         }
 
@@ -281,6 +307,20 @@ namespace ColdWatersMP
             m.rudderAngle = _s1.Rudder;
             m.ballastAngle = _s1.Ballast;
             m.isCavitating = _s1.Cav;
+            Puppet.acoustics.usingActiveSonar = _s1.Active;
+            // Their pings, at the player's ping rate: ping sound from their sub and the ping line on our map.
+            if (_s1.Active && !Puppet.isSinking)
+            {
+                PlayerFunctions pf = UIFunctions.globaluifunctions.playerfunctions;
+                _pingTimer += Time.deltaTime;
+                if (_pingTimer > pf.activeSonarPingRate)
+                {
+                    _pingTimer -= pf.activeSonarPingRate;
+                    UIFunctions.globaluifunctions.combatai.PlaySonarPing(Puppet);
+                    pf.sensormanager.tacticalmap.DrawPingLine(Puppet.transform, pf.sensormanager.tacticalmap.pingLines[0]);
+                }
+            }
+            else _pingTimer = UIFunctions.globaluifunctions.playerfunctions.activeSonarPingRate; // ping at once when they start
             Vector3 sp = m.shipSpeed; sp.z = _s1.SpeedZ; m.shipSpeed = sp;
             Puppet.submerged = _s1.Submerged;
 
@@ -340,9 +380,12 @@ namespace ColdWatersMP
                     s.Rudder = new Vector2(r.ReadSingle(), r.ReadSingle());
                     s.Ballast = new Vector2(r.ReadSingle(), r.ReadSingle());
                     s.Cav = r.ReadBoolean(); s.Silent = r.ReadBoolean(); s.Submerged = r.ReadBoolean();
+                    s.Active = r.ReadBoolean();
                     if (_stateCount > 0 && s.T <= _s1.T) break; // stale/out of order
                     _s0 = _stateCount > 0 ? _s1 : s; _s1 = s; _s1LocalTime = Time.time;
                     OppRunningSilent = s.Silent;
+                    if (s.Active != OppActiveSonar) Log("Opponent switched to " + (s.Active ? "ACTIVE" : "passive") + " sonar");
+                    OppActiveSonar = s.Active;
                     _stateCount++; _haveState = true;
                     break;
                 }
@@ -415,7 +458,15 @@ namespace ColdWatersMP
                 if (activeVessel.databaseshipdata.isDiesel) b *= Random.Range(1.2f, 1.8f);
                 __result -= b;
             }
-            __result -= Duel.OppRpgSelfNoiseBonus;
+            // The player formula subtracts the RPG bonus before compression.
+            if (__instance.passiveCompressionFactor != 0f) __result -= Duel.OppRpgSelfNoiseBonus / __instance.passiveCompressionFactor;
+            // A pinging player is at least as loud as their sonar's output (player rule, not the AI's +output/4).
+            int sid = activeVessel.databaseshipdata.activeSonarID;
+            if (Duel.OppActiveSonar && sid >= 0)
+            {
+                float output = UIFunctions.globaluifunctions.database.databasesonardata[sid].sonarOutput;
+                if (__result < output) __result = output;
+            }
         }
     }
 }

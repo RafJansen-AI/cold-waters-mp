@@ -11,14 +11,14 @@ namespace ColdWatersMP
 {
     public static class Weapons
     {
-        public const byte G_TORP_SPAWN = 5, G_TORP_STATE = 6, G_TORP_END = 7, G_TORP_HIT = 8, G_DAMAGE = 9;
+        public const byte G_TORP_SPAWN = 5, G_TORP_STATE = 6, G_TORP_END = 7, G_TORP_HIT = 8, G_DAMAGE = 9, G_NOISEMAKER = 11;
 
         class Incoming
         {
             public Torpedo T;
             public Vector3 Pos0, Pos1; public Vector3 Euler1; public float T0, T1, Local1; public int Count;
             public float SpawnLocal; public float EndAt = -1f; public bool Homing; public bool Armed;
-            public float LastHoming = -100f; public bool HomingLogged; public bool DroppedPayload;
+            public float LastHoming = -100f; public bool HomingLogged; public bool DroppedPayload; public bool Payload;
         }
 
         static int _nextId = 1;
@@ -98,11 +98,12 @@ namespace ColdWatersMP
             t.vesselFiredFrom = Duel.Puppet;
             t.whichNavy = 1;
             t.onWire = false;
-            t.usesParachute = false;
+            t.usesParachute = payload; // rocket payloads come down under a parachute
             t.InitialiseTorpedo();
+            if (payload) t.isAirborne = true;
             _puppetTorps.Add(t);
             UIFunctions.globaluifunctions.playerfunctions.sensormanager.AddTorpedoToArray(t);
-            Incoming inc = new Incoming { T = t, Pos0 = pos, Pos1 = pos, Euler1 = eul, T0 = 0, T1 = 0, Local1 = Time.time, Count = 0, SpawnLocal = Time.time };
+            Incoming inc = new Incoming { T = t, Pos0 = pos, Pos1 = pos, Euler1 = eul, T0 = 0, T1 = 0, Local1 = Time.time, Count = 0, SpawnLocal = Time.time, Payload = payload };
             _incoming[id] = inc;
             Duel.Log("Opponent fired torpedo #" + id + " (" + wd.weaponName + ")");
             if (payload) return; // dropped by a rocket far from the firer: no launch transient
@@ -162,6 +163,7 @@ namespace ColdWatersMP
             // The game arms a torpedo's hit collider in Torpedo.FixedUpdate, which puppets skip.
             // Player torpedoes (navy 0 on the firer's side) arm after 5 s; do the same here.
             if (!inc.Armed && Time.time - inc.SpawnLocal > 5f) Arm(t, inc);
+            if (inc.Payload && t.isAirborne && t.transform.position.y < 1000f) Splashdown(t);
             // "Torpedo in the water" callout: the game gives it when a torpedo targets the player's sub.
             Vessel own = GameDataManager.playervesselsonlevel[0];
             // Hold the lock for 2 s after the flag drops: states are unreliable and seekers flicker.
@@ -176,6 +178,47 @@ namespace ColdWatersMP
             if (err.magnitude > 0.5f) tr.position = target;
             else tr.position += err * Mathf.Min(1f, Time.deltaTime * 8f);
             tr.rotation = Quaternion.Slerp(tr.rotation, Quaternion.Euler(inc.Euler1), Mathf.Min(1f, Time.deltaTime * 8f));
+        }
+
+        /// <summary>What Torpedo.FixedUpdate does when a parachuted payload enters the water.</summary>
+        static void Splashdown(Torpedo t)
+        {
+            t.isAirborne = false;
+            if (t.tacMapTorpedoIcon != null) t.tacMapTorpedoIcon.gameObject.SetActive(true);
+            Vector3 p = t.transform.position;
+            ObjectPoolManager.CreatePooled(UIFunctions.globaluifunctions.database.splashes[0], new Vector3(p.x, 1000f, p.z), Quaternion.identity);
+            if (t.parachute != null) { t.parachute.Stop(); t.parachute.gameObject.SetActive(false); }
+        }
+
+        // ---------- noisemakers ----------
+
+        /// <summary>Our noisemaker: the opponent's torpedo seekers run in their game, so it must exist there.</summary>
+        public static void OnPlayerNoisemaker(int cmId, Vector3 pos, Quaternion rot)
+        {
+            if (!Active) return;
+            Vector3 e = rot.eulerAngles;
+            S.SendGame(G_NOISEMAKER, w => { w.Write(cmId); WriteV3(w, pos); WriteV3(w, e); }, true);
+            Duel.Log("Dropped noisemaker");
+        }
+
+        /// <summary>Same as an AI sub's drop (Enemy_Noisemaker.DropNoisemaker).</summary>
+        static void SpawnOpponentNoisemaker(int cmId, Vector3 pos, Vector3 eul)
+        {
+            UIFunctions ui = UIFunctions.globaluifunctions;
+            DatabaseCountermeasureData cd = ui.database.databasecountermeasuredata[cmId];
+            Noisemaker n = ObjectPoolManager.CreatePooled(cd.countermeasureObject, pos, Quaternion.Euler(eul)).GetComponent<Noisemaker>();
+            n.gameObject.SetActive(true);
+            n.databasecountermeasuredata = cd;
+            ui.playerfunctions.sensormanager.AddNoiseMakerToArray(n);
+            n.tacMapNoisemakerIcon.shipDisplayIcon.color = ui.playerfunctions.sensormanager.tacticalmap.navyColors[1];
+            Vessel own = GameDataManager.playervesselsonlevel[0];
+            Transform nav = own.acoustics.sensorNavigator.transform;
+            nav.LookAt(pos);
+            string brg = nav.eulerAngles.y.ToString("0");
+            ui.playerfunctions.voicemanager.currentNoisemakerBearing = nav.eulerAngles.y.ToString("000");
+            string msg = LanguageManager.GetDictionaryString(LanguageManager.messageLogDictionary, "NoisemakerDropped").Replace("<BRG>", brg);
+            ui.playerfunctions.PlayerMessage(msg, ui.playerfunctions.messageLogColors["Sonar"], "NoisemakerDropped");
+            Duel.Log("Opponent dropped a noisemaker, bearing " + brg);
         }
 
         static void Arm(Torpedo t, Incoming inc)
@@ -245,7 +288,12 @@ namespace ColdWatersMP
                 {
                     int id = r.ReadInt32(); int wid = r.ReadInt32(); Vector3 p = ReadV3(r); Vector3 e = ReadV3(r); bool payload = r.ReadBoolean(); int carrierId = r.ReadInt32();
                     Incoming carrier;
-                    if (carrierId >= 0 && _incoming.TryGetValue(carrierId, out carrier)) carrier.DroppedPayload = true;
+                    if (carrierId > 0 && _incoming.TryGetValue(carrierId, out carrier))
+                    {
+                        carrier.DroppedPayload = true;
+                        Duel.Log("Opponent torpedo #" + carrierId + " released its payload");
+                        Kill(carrierId, false); // the payload takes over from here
+                    }
                     if (Duel.InDuel) SpawnPuppetTorpedo(id, wid, p, e, payload);
                     return true;
                 }
@@ -278,6 +326,16 @@ namespace ColdWatersMP
                     Duel.Log("Our torpedo #" + id + " HIT the opponent");
                     if (_own.TryGetValue(id, out t) && t != null) t.destroyMe = true; // explode here too
                     _own.Remove(id);
+                    return true;
+                }
+                case G_NOISEMAKER:
+                {
+                    int cm = r.ReadInt32(); Vector3 p = ReadV3(r); Vector3 e = ReadV3(r);
+                    if (Duel.InDuel)
+                    {
+                        try { SpawnOpponentNoisemaker(cm, p, e); }
+                        catch (System.Exception ex) { Duel.Log("Noisemaker spawn failed: " + ex.Message); }
+                    }
                     return true;
                 }
                 case G_DAMAGE:
@@ -360,6 +418,21 @@ namespace ColdWatersMP
                 Duel.Log("Payload released by " + parent.databaseweapondata.weaponName);
                 Weapons.OnPlayerFired(__instance, true, parent);
             }
+        }
+    }
+
+    /// <summary>Player noisemaker drops (WeaponSource.DropNoisemaker is also used by nothing else for the player).</summary>
+    [HarmonyPatch(typeof(WeaponSource), "DropNoisemaker")]
+    static class Patch_DropNoisemaker
+    {
+        static void Prefix(WeaponSource __instance, out int __state) { __state = __instance.noisemakersOnBoard; }
+
+        static void Postfix(WeaponSource __instance, int __state)
+        {
+            if (!Duel.InDuel || __instance.noisemakersOnBoard >= __state) return; // nothing dropped
+            Vessel v = __instance.parentVesselMovement.parentVessel;
+            if (v == null || !v.playercontrolled) return;
+            Weapons.OnPlayerNoisemaker(v.databaseshipdata.noiseMakerID, __instance.noisemakerTubes.position, __instance.noisemakerTubes.rotation);
         }
     }
 
