@@ -302,6 +302,39 @@ namespace ColdWatersMP
             Launched = null;
             if (Duel.InDuel && t != null) Weapons.OnPlayerFired(t);
         }
+
+        /// <summary>Runs even if FireTube throws, so a failed launch can't leave the capture flag set.</summary>
+        static System.Exception Finalizer(System.Exception __exception)
+        {
+            InFireTube = false;
+            Launched = null;
+            return __exception;
+        }
+    }
+
+    /// <summary>FireTube lets enemy AI react to the player's launch transient. In a duel the only
+    /// enemy is the puppet, whose AI is off, and its attack code throws. The opponent hears our
+    /// launch in their own game instead (Weapons.LaunchTransient).</summary>
+    [HarmonyPatch(typeof(CombatAI), "CheckPlayerTransient")]
+    static class Patch_CheckPlayerTransient
+    {
+        static bool Prefix() { return !Duel.InDuel; }
+    }
+
+    /// <summary>No AI attack orders for the puppet, whoever issues them.</summary>
+    [HarmonyPatch(typeof(VesselAI), "AttackPosition")]
+    static class Patch_VesselAI_AttackPosition
+    {
+        static bool Prefix(VesselAI __instance)
+        {
+            return !(Duel.InDuel && Duel.Puppet != null && Duel.Puppet.vesselai == __instance);
+        }
+    }
+
+    [HarmonyPatch(typeof(CombatAI), "CheckToAttackPlayer")]
+    static class Patch_CheckToAttackPlayer
+    {
+        static bool Prefix(Vessel activeVessel) { return !Duel.IsPuppet(activeVessel); }
     }
 
     [HarmonyPatch(typeof(Torpedo), "InitialiseTorpedo")]
