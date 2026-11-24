@@ -131,6 +131,11 @@ the host to own all traffic and stream it like the opponent's sub (more puppets,
   torpedo's seeker. The firer's game must therefore see the target's decoys as puppets (spawn, position, lifetime)
   so its seeker can be seduced. Open questions: whether DotMod's seeker logic reads decoys from a list we can inject into,
   and the 100–200 ms latency on a decoy that has to work in the last seconds [uncertain, needs a code check].
+- **Pause (found in test 3):** pausing still works in MP and freezes only that player's sub, which the opponent then sees
+  stopped dead. In MP, pause must either be disabled or pause both games (same propose/accept flow as time compression).
+- **Testing aids:** F7 debug teleport (0.0.10) jumps your sub close to the opponent's bow. Keep weapon minimum ranges
+  and the 5 s arming time in mind.
+- **Rocket-delivered weapons** (Vjuga, ASROC-type): only the carrier is replicated so far, not the torpedo it drops.
 - **Launch detection callout**: the target must get the game's "torpedo in the water" callout and contact when the
   opponent fires. Treated as a PoC bug, not a later feature.
 

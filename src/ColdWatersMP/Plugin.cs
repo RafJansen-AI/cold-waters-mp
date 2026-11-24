@@ -11,13 +11,14 @@ namespace ColdWatersMP
     [BepInPlugin("cwmp", "Cold Waters MP", PluginVersion)]
     public class CwmpPlugin : BaseUnityPlugin
     {
-        public const string PluginVersion = "0.0.9";
+        public const string PluginVersion = "0.0.10";
 
         ConfigEntry<string> _role, _hostAddress, _playerName, _fakeHash;
         ConfigEntry<int> _port;
         ConfigEntry<bool> _autoStart;
         ConfigEntry<float> _rangeNm;
         ConfigEntry<bool> _windowed;
+        ConfigEntry<float> _teleportNm;
         Session _session;
         bool _showOverlay = true;
         readonly List<string> _logLines = new List<string>();
@@ -31,6 +32,7 @@ namespace ColdWatersMP
             _playerName = Config.Bind("Player", "Name", System.Environment.UserName, "Shown to your opponent");
             _fakeHash = Config.Bind("Debug", "FakeDllHash", "", "Testing only: pretend Assembly-CSharp.dll has this hash");
             _rangeNm = Config.Bind("Duel", "RangeNm", 6f, "Starting distance between the subs (host decides)");
+            _teleportNm = Config.Bind("Debug", "TeleportNm", 1.5f, "Testing: F7 jumps your sub this far off the opponent's bow");
             _windowed = Config.Bind("Display", "Windowed1280x720", false, "Testing: force a 1280x720 window");
             // Keep simulating and networking while the window is not focused (two copies on one PC, Alt+Tab).
             Application.runInBackground = true;
@@ -45,7 +47,7 @@ namespace ColdWatersMP
             new Harmony("cwmp").PatchAll(typeof(CwmpPlugin).Assembly);
             Log("Harmony patches applied");
             if (_autoStart.Value) StartSession();
-            Log("Cold Waters MP " + PluginVersion + " loaded. F8: start held mission, F9: toggle overlay, F10: (re)start session, F11: send test chat");
+            Log("Cold Waters MP " + PluginVersion + " loaded. F7: debug teleport near opponent, F8: start held mission, F9: toggle overlay, F10: (re)start session, F11: send test chat");
         }
 
         void Start()
@@ -67,6 +69,7 @@ namespace ColdWatersMP
         {
             if (Input.GetKeyDown(KeyCode.F9)) _showOverlay = !_showOverlay;
             if (Input.GetKeyDown(KeyCode.F10)) { _session.Leave(); StartSession(); }
+            if (Input.GetKeyDown(KeyCode.F7)) Duel.DebugTeleportNearOpponent(_teleportNm.Value);
             if (Input.GetKeyDown(KeyCode.F8)) Duel.ReleaseHeldLoad("F8 pressed");
             if (Input.GetKeyDown(KeyCode.F11)) _session.SendChat("ping from " + _playerName.Value + " at " + Time.realtimeSinceStartup.ToString("F1") + "s");
             try { _session.Update(); }

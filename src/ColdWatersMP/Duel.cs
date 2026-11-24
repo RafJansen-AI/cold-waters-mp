@@ -213,6 +213,24 @@ namespace ColdWatersMP
             v.transform.eulerAngles = e;
         }
 
+        /// <summary>Testing: jump our own sub to <paramref name="nm"/> off the opponent's bow, pointing at them.
+        /// Our next state update moves our sub on the opponent's screen too.</summary>
+        public static void DebugTeleportNearOpponent(float nm)
+        {
+            if (!InDuel || Puppet == null) return;
+            Vessel own = GameDataManager.playervesselsonlevel[0];
+            if (own == null) return;
+            Vector3 fwd = Puppet.transform.forward; fwd.y = 0f;
+            if (fwd.sqrMagnitude < 0.0001f) fwd = Vector3.forward;
+            fwd.Normalize();
+            Vector3 pos = Puppet.transform.position + fwd * (nm * UnitsPerNm);
+            Vector3 toOpp = Puppet.transform.position - pos;
+            float heading = Mathf.Atan2(toOpp.x, toOpp.z) * Mathf.Rad2Deg;
+            if (heading < 0f) heading += 360f;
+            Teleport(own, pos, heading);
+            Log("DEBUG: teleported to " + nm.ToString("F1") + " nm off the opponent's bow, heading " + heading.ToString("0"));
+        }
+
         /// <summary>Called on mission exit (or session loss).</summary>
         public static void EndDuel()
         {
