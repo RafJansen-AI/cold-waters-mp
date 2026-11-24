@@ -87,7 +87,11 @@ namespace ColdWatersMP
             session.GameMessage += OnGameMessage;
             session.ReadyChanged += delegate (bool ready)
             {
-                if (ready) { if (_choiceMade) SendSubChoice(); } // re-send a real choice to a newly joined peer
+                if (ready)
+                {
+                    if (_choiceMade) SendSubChoice(); // re-send a real choice to a newly joined peer
+                    EnvSync.HostNewSeed();
+                }
                 else { OppClass = -1; OppClassName = ""; OppInMission = false; }
             };
         }
@@ -258,6 +262,7 @@ namespace ColdWatersMP
         {
             InDuel = false; Puppet = null; LocalInMission = false;
             _choiceMade = false; _heldLoad = null; // a new mission needs a new choice
+            EnvSync.HostNewSeed(); // host: new ocean for the next mission (the client keeps the latest seed it got)
             Weapons.Reset();
         }
 
@@ -347,6 +352,7 @@ namespace ColdWatersMP
         static void OnGameMessage(byte type, BinaryReader r)
         {
             if (Weapons.OnMessage(type, r)) return;
+            if (EnvSync.OnMessage(type, r)) return;
             switch (type)
             {
                 case G_SUBCHOICE:
