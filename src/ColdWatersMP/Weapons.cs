@@ -18,6 +18,7 @@ namespace ColdWatersMP
             public Torpedo T;
             public Vector3 Pos0, Pos1; public Vector3 Euler1; public float T0, T1, Local1; public int Count;
             public float SpawnLocal; public float EndAt = -1f; public bool Homing; public bool Armed;
+            public float LastHoming = -100f; public bool HomingLogged; public bool DroppedPayload;
         }
 
         static int _nextId = 1;
@@ -43,16 +44,18 @@ namespace ColdWatersMP
 
         // ---------- firer side ----------
 
-        public static void OnPlayerFired(Torpedo t) { OnPlayerFired(t, false); }
+        public static void OnPlayerFired(Torpedo t) { OnPlayerFired(t, false, null); }
 
-        public static void OnPlayerFired(Torpedo t, bool payload)
+        public static void OnPlayerFired(Torpedo t, bool payload, Torpedo carrier)
         {
             if (!Active || t == null) return;
             int id = _nextId++;
             _own[id] = t; _ownIds[t] = id;
             int weaponId = t.databaseweapondata.weaponID;
             Vector3 pos = t.transform.position; Vector3 eul = t.transform.eulerAngles;
-            S.SendGame(G_TORP_SPAWN, w => { w.Write(id); w.Write(weaponId); WriteV3(w, pos); WriteV3(w, eul); w.Write(payload); }, true);
+            int carrierId = -1;
+            if (carrier != null) _ownIds.TryGetValue(carrier, out carrierId);
+            S.SendGame(G_TORP_SPAWN, w => { w.Write(id); w.Write(weaponId); WriteV3(w, pos); WriteV3(w, eul); w.Write(payload); w.Write(carrierId); }, true);
             Duel.Log("Fired torpedo #" + id + " (" + t.databaseweapondata.weaponName + ")");
         }
 
@@ -152,7 +155,7 @@ namespace ColdWatersMP
             }
             if (inc.EndAt > 0f && Time.time > inc.EndAt)
             {
-                Duel.Log("Opponent torpedo #" + id + " ended (miss)");
+                Duel.Log("Opponent torpedo #" + id + (inc.DroppedPayload ? " ended (carrier, payload was released)" : " ended (miss)"));
                 Kill(id, false);
                 return;
             }
@@ -161,7 +164,8 @@ namespace ColdWatersMP
             if (!inc.Armed && Time.time - inc.SpawnLocal > 5f) Arm(t, inc);
             // "Torpedo in the water" callout: the game gives it when a torpedo targets the player's sub.
             Vessel own = GameDataManager.playervesselsonlevel[0];
-            if (own != null) t.targetTransform = inc.Homing ? own.transform : null;
+            // Hold the lock for 2 s after the flag drops: states are unreliable and seekers flicker.
+            if (own != null) t.targetTransform = (inc.Homing || Time.time - inc.LastHoming < 2f) ? own.transform : null;
 
             Vector3 target = inc.Pos1;
             float dt = inc.T1 - inc.T0;
@@ -239,7 +243,9 @@ namespace ColdWatersMP
             {
                 case G_TORP_SPAWN:
                 {
-                    int id = r.ReadInt32(); int wid = r.ReadInt32(); Vector3 p = ReadV3(r); Vector3 e = ReadV3(r); bool payload = r.ReadBoolean();
+                    int id = r.ReadInt32(); int wid = r.ReadInt32(); Vector3 p = ReadV3(r); Vector3 e = ReadV3(r); bool payload = r.ReadBoolean(); int carrierId = r.ReadInt32();
+                    Incoming carrier;
+                    if (carrierId >= 0 && _incoming.TryGetValue(carrierId, out carrier)) carrier.DroppedPayload = true;
                     if (Duel.InDuel) SpawnPuppetTorpedo(id, wid, p, e, payload);
                     return true;
                 }
@@ -250,7 +256,8 @@ namespace ColdWatersMP
                     if (_incoming.TryGetValue(id, out inc) && time > inc.T1 && inc.EndAt < 0f)
                     {
                         inc.Pos0 = inc.Pos1; inc.T0 = inc.T1; inc.Pos1 = p; inc.T1 = time; inc.Euler1 = e; inc.Local1 = Time.time; inc.Count++;
-                        if (homing && !inc.Homing) Duel.Log("Opponent torpedo #" + id + " is homing on us");
+                        if (homing && !inc.HomingLogged) { inc.HomingLogged = true; Duel.Log("Opponent torpedo #" + id + " is homing on us"); }
+                        if (homing) inc.LastHoming = Time.time;
                         inc.Homing = homing;
                     }
                     return true;
@@ -351,7 +358,7 @@ namespace ColdWatersMP
             if (parent != null && __instance != parent && !Weapons.IsPuppetTorpedo(__instance) && !Weapons.IsOwnTorpedo(__instance))
             {
                 Duel.Log("Payload released by " + parent.databaseweapondata.weaponName);
-                Weapons.OnPlayerFired(__instance, true);
+                Weapons.OnPlayerFired(__instance, true, parent);
             }
         }
     }
