@@ -140,6 +140,14 @@ namespace ColdWatersMP
         /// <returns>false to hold the load until the opponent's sub choice arrives.</returns>
         public static bool BeforeLoadLevel(LevelLoadManager llm)
         {
+            if (LocalInMission)
+            {
+                // Safety net: we never saw the previous mission end. Treat it as ended now, but keep the
+                // fresh sub choice and anything the opponent already sent for the new mission.
+                // No "left the mission" message here: it would wipe the sub choice we just sent.
+                Log("WARNING: previous duel was never closed; cleaning up before the new mission");
+                EnvSync.HostNewSeed();
+            }
             InDuel = false; Puppet = null; LocalInMission = false; _haveState = false; _stateCount = 0;
             _ownAtStations = false; _heldStations = null; // _oppAtStations may already be true: they can be quicker
             Weapons.Reset();
@@ -233,7 +241,8 @@ namespace ColdWatersMP
         static void ApplyPlacement()
         {
             if (!_havePlacement || !LocalInMission) return;
-            Vessel own = GameDataManager.playervesselsonlevel[0];
+            Vessel own = OwnVessel();
+            if (own == null) { Log("Placement arrived before our mission was loaded; keeping it for later"); return; }
             if (!Session.IsHost) Teleport(own, _placeOwnPos, _placeOwnHeading);
             if (Puppet != null) Teleport(Puppet, _placeOppPos, _placeOppHeading);
             _havePlacement = false;
@@ -242,6 +251,7 @@ namespace ColdWatersMP
 
         static void Teleport(Vessel v, Vector3 pos, float heading)
         {
+            if (v == null) return; // Unity-destroyed vessel from an earlier mission
             Vector3 p = pos; p.y = v.transform.position.y; // keep own spawn depth
             v.transform.position = p;
             Vector3 e = v.transform.eulerAngles; e.y = heading;
@@ -292,6 +302,24 @@ namespace ColdWatersMP
             finally { _releasingStations = false; }
         }
 
+        /// <summary>Our own vessel, or null if none (or it was destroyed with the previous scene).</summary>
+        static Vessel OwnVessel()
+        {
+            Vessel[] a = GameDataManager.playervesselsonlevel;
+            if (a == null || a.Length == 0) return null;
+            Vessel v = a[0];
+            return v == null ? null : v; // Unity's == catches destroyed objects
+        }
+
+        /// <summary>We left the mission (action report, quit, back to main). Safe to call more than once.</summary>
+        public static void OnLeftMission(string how)
+        {
+            if (!InDuel && !LocalInMission) return;
+            Log("Left the mission (" + how + ")");
+            if (Session != null) Session.SendGame(G_INMISSION, w => w.Write(false), true);
+            EndDuel();
+        }
+
         /// <summary>Called on mission exit (or session loss).</summary>
         public static void EndDuel()
         {
@@ -307,7 +335,7 @@ namespace ColdWatersMP
         public static void Update()
         {
             if (!InDuel || !Active) return;
-            if (Puppet == null || GameDataManager.playervesselsonlevel == null || GameDataManager.playervesselsonlevel.Length == 0) return;
+            if (Puppet == null || OwnVessel() == null) return;
 
             _diagTimer += Time.unscaledDeltaTime;
             if (_diagTimer >= 10f) { _diagTimer = 0f; LogSonarDiagnostics(); }
@@ -316,7 +344,7 @@ namespace ColdWatersMP
             if (_sendTimer >= 0.1f)
             {
                 _sendTimer = 0f;
-                SendOwnState(GameDataManager.playervesselsonlevel[0]);
+                SendOwnState(OwnVessel());
             }
             DrivePuppet();
             Weapons.Update();
@@ -464,14 +492,24 @@ namespace ColdWatersMP
         static void Postfix() { Duel.OnSubAccepted(); }
     }
 
+    // Leaving a mission: EndLevel runs for every mission end (sunk, quit, mission over) and brings up the
+    // action report; UIFunctions.BackToMain is the menu button after it; MissionManager.BackToMain is the campaign exit.
+    [HarmonyPatch(typeof(UIFunctions), "EndLevel")]
+    static class Patch_EndLevel
+    {
+        static void Prefix() { Duel.OnLeftMission("mission ended"); }
+    }
+
+    [HarmonyPatch(typeof(UIFunctions), "BackToMain")]
+    static class Patch_UIBackToMain
+    {
+        static void Prefix() { Duel.OnLeftMission("back to main menu"); }
+    }
+
     [HarmonyPatch(typeof(MissionManager), "BackToMain")]
     static class Patch_BackToMain
     {
-        static void Prefix()
-        {
-            if (Duel.InDuel && Duel.Session != null) Duel.Session.SendGame(4, w => w.Write(false), true);
-            Duel.EndDuel();
-        }
+        static void Prefix() { Duel.OnLeftMission("campaign exit"); }
     }
 
     [HarmonyPatch(typeof(VesselAI), "FixedUpdate")]
