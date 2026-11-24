@@ -476,3 +476,20 @@ namespace ColdWatersMP
         }
     }
 }
+
+namespace ColdWatersMP
+{
+    /// <summary>No pausing in a duel (for now): the Esc/exit menu still opens, but the game keeps running.
+    /// A paused game freezes its own sub for the opponent and can't be hit. Later: host setting (block or pause both).</summary>
+    [HarmonyPatch(typeof(MissionManager), "BringInExitMenu")]
+    static class Patch_BringInExitMenu
+    {
+        static void Postfix()
+        {
+            if (!Duel.InDuel || Time.timeScale != 0f) return;
+            Time.timeScale = 1f;
+            Time.fixedDeltaTime = 0.02f;
+            Duel.Log("Pause blocked in multiplayer: the game keeps running");
+        }
+    }
+}
