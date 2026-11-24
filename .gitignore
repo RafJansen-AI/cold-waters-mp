@@ -1,0 +1,7 @@
+*.dll
+*.exe
+*.pdb
+bin/
+obj/
+ColdWaters_Data/
+BepInEx/
