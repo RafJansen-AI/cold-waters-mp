@@ -64,6 +64,9 @@ namespace ColdWatersMP
         static bool _ownAtStations, _oppAtStations, _releasingStations;
         static MissionManager _heldStations;
         public static int OppMissionId = -1;
+        // We left while the opponent was still in that mission: don't start a new one until they leave it too.
+        // (Being "in the mission" alone is not enough: they may already be in the NEW one.)
+        static bool _oppInOldMission;
         public static bool WaitingForOpponentChoice { get { return _heldLoad != null; } }
 
         // Latest two opponent states, for extrapolation
@@ -101,7 +104,7 @@ namespace ColdWatersMP
                 }
                 else
                 {
-                    OppClass = -1; OppClassName = ""; OppInMission = false;
+                    OppClass = -1; OppClassName = ""; OppInMission = false; _oppInOldMission = false;
                     TimeSync.Reset();             // never stay paused or compressed for a peer that is gone
                     Match.OnHostLeftMission();    // client: the host's map is stale after a reconnect
                 }
@@ -165,7 +168,7 @@ namespace ColdWatersMP
             if (!Active || !GameDataManager.missionMode) return true;
             if (!_choiceMade) OnSubAccepted(); // fallback: make sure the opponent learns our sub
             if (Session.IsHost && !_releasingLoad) Match.HostPrepare(llm.levelloaddata); // our map and conditions, for both of us (once)
-            if (OppInMission && !_releasingLoad)
+            if (_oppInOldMission && !_releasingLoad)
             {
                 _heldLoad = llm;
                 Log("Waiting for the opponent to leave the previous mission (F8: start anyway)");
@@ -213,6 +216,9 @@ namespace ColdWatersMP
         {
             if (_heldLoad == null) return;
             _heldLoad = null;
+            _choiceMade = false;
+            // Tell the opponent: our sub choice (and, from the host, the map) no longer stand.
+            if (Session != null) Session.SendGame(G_INMISSION, w => w.Write(false), true);
             Log("Held mission start cancelled (back at the main menu)");
         }
 
@@ -421,6 +427,7 @@ namespace ColdWatersMP
             _ownAtStations = false; _oppAtStations = false; _heldStations = null; OppMissionId = -1;
             TimeSync.Reset();
             Match.RestoreLocalDifficulty();
+            _oppInOldMission = OppInMission;
             if (OppInMission)
             {
                 // They are still in the old mission: their sub choice (and, for a client, the host's map) belong
@@ -532,7 +539,7 @@ namespace ColdWatersMP
                     string mine = ClassName(OppClass);
                     if (mine != OppClassName) Log("WARNING: opponent's sub " + OppClassName + " is " + mine + " here (data mismatch?)");
                     Log("Opponent chose " + OppClassName);
-                    if (_heldLoad != null && !OppInMission && (Session.IsHost || Match.HaveHostMatch)) ReleaseHeldLoad("opponent chose " + OppClassName);
+                    if (_heldLoad != null && !_oppInOldMission && (Session.IsHost || Match.HaveHostMatch)) ReleaseHeldLoad("opponent chose " + OppClassName);
                     if (InDuel && Puppet != null && Puppet.databaseshipdata.shipPrefabName != OppClassName)
                         Log("WARNING: puppet is a " + Puppet.databaseshipdata.shipPrefabName + " but opponent chose " + OppClassName + ". Pick both subs before starting either mission.");
                     break;
@@ -553,6 +560,7 @@ namespace ColdWatersMP
                 case G_INMISSION:
                     OppInMission = r.ReadBoolean();
                     Log("Opponent " + (OppInMission ? "is in the mission" : "left the mission"));
+                    if (!OppInMission) _oppInOldMission = false;
                     if (!OppInMission && !Session.IsHost) Match.OnHostLeftMission();
                     if (!OppInMission) TimeSync.Reset();
                     if (!OppInMission) { OppClass = -1; OppClassName = ""; _oppAtStations = false; OppMissionId = -1; } // they will choose again

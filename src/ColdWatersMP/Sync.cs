@@ -52,6 +52,7 @@ namespace ColdWatersMP
         public static void Reset()
         {
             bool wasPausedByOpp = _oppPaused;
+            if (TCOn && Duel.InDuel) { try { ToggleTC(); } catch (System.Exception) { } } // back to 1x
             _ownWantsTC = false; _oppWantsTC = false; _ownPaused = false; _oppPaused = false;
             if (wasPausedByOpp && Time.timeScale == 0f) { Time.timeScale = 1f; Time.fixedDeltaTime = 0.02f; }
         }
