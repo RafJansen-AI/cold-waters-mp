@@ -310,7 +310,10 @@ namespace ColdWatersMP
                 if (_allSubs == null || _allSubs.Length == 0) return;
                 PlayerFunctions pf = UIFunctions.globaluifunctions.playerfunctions;
                 System.Collections.Generic.List<int> list = new System.Collections.Generic.List<int>();
-                if (pf.playerVesselList != null) list.AddRange(pf.playerVesselList); // the mission's own subs first
+                DatabaseShipData[] db = UIFunctions.globaluifunctions.database.databaseshipdata;
+                if (pf.playerVesselList != null) // the mission's own subs first (no surface ships: not supported in duels)
+                    foreach (int id in pf.playerVesselList)
+                        if (id >= 0 && id < db.Length && db[id] != null && IsRealSub(db[id].shipPrefabName)) list.Add(id);
                 foreach (int id in _allSubs) if (!list.Contains(id)) list.Add(id);
                 pf.playerVesselList = list.ToArray();
                 Duel.Log("~Sub choice: " + list.Count + " subs available in multiplayer");
