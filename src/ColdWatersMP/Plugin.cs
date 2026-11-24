@@ -11,7 +11,7 @@ namespace ColdWatersMP
     [BepInPlugin("cwmp", "Cold Waters MP", PluginVersion)]
     public class CwmpPlugin : BaseUnityPlugin
     {
-        public const string PluginVersion = "0.0.27";
+        public const string PluginVersion = "0.0.28";
 
         ConfigEntry<string> _role, _hostAddress, _playerName, _fakeHash;
         ConfigEntry<int> _port;

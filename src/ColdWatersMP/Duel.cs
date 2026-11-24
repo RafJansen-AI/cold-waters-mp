@@ -215,6 +215,7 @@ namespace ColdWatersMP
             d.kmSlots = new int[1];
             InDuel = true;
             Log("Duel: mission rewritten to 1 enemy (" + ClassName(oppCls) + "), no traffic or aircraft");
+            SetIdBook(oppCls);
             return true;
         }
 
@@ -296,6 +297,32 @@ namespace ColdWatersMP
             Session.SendGame(G_INMISSION, w => w.Write(true), true);
             // PoC: no automatic start hold (pausing via timeScale during the load coroutine is unsafe).
             // Until the opponent's first state arrives, the puppet simply waits at its placement.
+        }
+
+        /// <summary>The ID book (signatures, recognition manual, classification) comes from the mission's OtherVessels
+        /// list, so a Chinese map gives a Chinese book and a NATO duel may have no NATO subs in it. For a duel, use the
+        /// opponent's navy instead: every selectable submarine whose name starts with the same nation (wp_, usn_,
+        /// plan_, uk_ ...), all periods, always including their real class. The next mission load fills it again, so
+        /// single player keeps its own books.</summary>
+        static void SetIdBook(int oppCls)
+        {
+            try
+            {
+                PlayerFunctions pf = UIFunctions.globaluifunctions.playerfunctions;
+                DatabaseShipData[] db = UIFunctions.globaluifunctions.database.databaseshipdata;
+                string name = db[oppCls].shipPrefabName;
+                string nation = name.Split('_')[0] + "_";
+                List<int> book = new List<int>();
+                int[] all = Patch_PopulateLevelLoadData_AllSubs.AllSubs();
+                if (all != null)
+                    foreach (int id in all)
+                        if (db[id].shipPrefabName.StartsWith(nation) && !book.Contains(id)) book.Add(id);
+                if (!book.Contains(oppCls)) book.Add(oppCls);
+                pf.otherVesselList = book.ToArray();
+                pf.currentSignatureIndex = 0; // used as a position in the list without a bounds check
+                Log("ID book: " + book.Count + " " + nation.TrimEnd('_') + " submarines");
+            }
+            catch (System.Exception ex) { Log("ID book not changed: " + ex.Message); }
         }
 
         static void MakePuppet(Vessel v)

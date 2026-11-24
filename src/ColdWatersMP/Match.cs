@@ -297,7 +297,7 @@ namespace ColdWatersMP
     /// <summary>In multiplayer, every playable submarine can be chosen in any single mission (missions often
     /// restrict the list). The full list is the testing grounds' (single001) PlayerVessels, submarines only.</summary>
     [HarmonyLib.HarmonyPatch(typeof(TextParser), "PopulateLevelLoadData")]
-    static class Patch_PopulateLevelLoadData_AllSubs
+    public static class Patch_PopulateLevelLoadData_AllSubs
     {
         static int[] _allSubs;
 
@@ -306,7 +306,7 @@ namespace ColdWatersMP
             if (!GameDataManager.missionMode || Duel.Session == null || Duel.Session.State != SessionState.Ready) return;
             try
             {
-                if (_allSubs == null) _allSubs = LoadAllSubs(__instance);
+                if (_allSubs == null) AllSubs();
                 if (_allSubs == null || _allSubs.Length == 0) return;
                 PlayerFunctions pf = UIFunctions.globaluifunctions.playerfunctions;
                 System.Collections.Generic.List<int> list = new System.Collections.Generic.List<int>();
@@ -316,6 +316,13 @@ namespace ColdWatersMP
                 Duel.Log("~Sub choice: " + list.Count + " subs available in multiplayer");
             }
             catch (System.Exception ex) { Duel.Log("Could not widen the sub choice: " + ex.Message); }
+        }
+
+        /// <summary>Every selectable submarine (single001's PlayerVessels), for the sub choice and the ID book.</summary>
+        public static int[] AllSubs()
+        {
+            if (_allSubs == null && UIFunctions.globaluifunctions != null) _allSubs = LoadAllSubs(UIFunctions.globaluifunctions.textparser);
+            return _allSubs;
         }
 
         static int[] LoadAllSubs(TextParser tp)
