@@ -11,7 +11,7 @@ namespace ColdWatersMP
     public static class Duel
     {
         // Game message sub-types
-        const byte G_SUBCHOICE = 1, G_PLACEMENT = 2, G_STATE = 3, G_INMISSION = 4;
+        const byte G_SUBCHOICE = 1, G_PLACEMENT = 2, G_STATE = 3, G_INMISSION = 4, G_STATIONS = 13;
 
         public const float UnitsPerNm = 2025.37f / 75.13f; // 1 unit = 75.13 yd
 
@@ -60,6 +60,10 @@ namespace ColdWatersMP
         // Start gate: a mission load is held until the opponent's sub choice has arrived.
         static LevelLoadManager _heldLoad;
         static bool _releasingLoad;
+        // Battlestations gate: both players leave the (paused) briefing together.
+        static bool _ownAtStations, _oppAtStations, _releasingStations;
+        static MissionManager _heldStations;
+        public static int OppMissionId = -1;
         public static bool WaitingForOpponentChoice { get { return _heldLoad != null; } }
 
         // Latest two opponent states, for extrapolation
@@ -75,6 +79,9 @@ namespace ColdWatersMP
                 if (Session == null || Session.State != SessionState.Ready) return "";
                 string opp = OppClass >= 0 ? OppClassName : "not chosen yet";
                 string s = "Opponent sub: " + opp;
+                if (_heldStations != null) s += " | WAITING for opponent to reach battlestations (F8: start anyway)";
+                if (OppMissionId >= 0 && UIFunctions.globaluifunctions != null && OppMissionId != UIFunctions.globaluifunctions.missionmanager.currentMissionID)
+                    s += " | WARNING: different mission than opponent";
                 if (WaitingForOpponentChoice) s += " | WAITING for opponent's sub choice (F8: start anyway)";
                 if (InDuel) s += " | duel " + (OppInMission ? "running" : "waiting for opponent to load") + (Puppet != null ? " | states " + _stateCount : "");
                 return s;
@@ -116,6 +123,7 @@ namespace ColdWatersMP
             {
                 w.Write(cls); w.Write(name);
                 w.Write(RPG_Mode.rpgModeEnabled ? RPG_Mode.SelfNoiseBonus : 0f);
+                w.Write(UIFunctions.globaluifunctions.missionmanager.currentMissionID);
             }, true);
             Log("Sent sub choice: " + name);
         }
@@ -133,6 +141,7 @@ namespace ColdWatersMP
         public static bool BeforeLoadLevel(LevelLoadManager llm)
         {
             InDuel = false; Puppet = null; LocalInMission = false; _haveState = false; _stateCount = 0;
+            _ownAtStations = false; _heldStations = null; // _oppAtStations may already be true: they can be quicker
             Weapons.Reset();
             if (!Active || !GameDataManager.missionMode) return true;
             if (!_choiceMade) OnSubAccepted(); // fallback: make sure the opponent learns our sub
@@ -257,11 +266,38 @@ namespace ColdWatersMP
             Log("DEBUG: teleported to " + nm.ToString("F1") + " nm off the opponent's bow, heading " + heading.ToString("0"));
         }
 
+        /// <summary>Battlestations prefix: tell the opponent; hold until they are there too.</summary>
+        public static bool OnBattlestations(MissionManager mm)
+        {
+            if (!InDuel || !Active || _releasingStations) return true;
+            if (!_ownAtStations)
+            {
+                _ownAtStations = true;
+                Session.SendGame(G_STATIONS, w => { }, true);
+            }
+            if (_oppAtStations) return true;
+            _heldStations = mm;
+            Log("Waiting for the opponent to reach battlestations (F8: start anyway)");
+            return false;
+        }
+
+        public static void ReleaseStations(string why)
+        {
+            MissionManager mm = _heldStations;
+            if (mm == null) return;
+            _heldStations = null;
+            Log("Battlestations (" + why + ")");
+            _releasingStations = true;
+            try { mm.Battlestations(); }
+            finally { _releasingStations = false; }
+        }
+
         /// <summary>Called on mission exit (or session loss).</summary>
         public static void EndDuel()
         {
             InDuel = false; Puppet = null; LocalInMission = false;
             _choiceMade = false; _heldLoad = null; // a new mission needs a new choice
+            _ownAtStations = false; _oppAtStations = false; _heldStations = null; OppMissionId = -1;
             EnvSync.HostNewSeed(); // host: new ocean for the next mission (the client keeps the latest seed it got)
             Weapons.Reset();
         }
@@ -357,6 +393,9 @@ namespace ColdWatersMP
             {
                 case G_SUBCHOICE:
                     OppClass = r.ReadInt32(); OppClassName = r.ReadString(); OppRpgSelfNoiseBonus = r.ReadSingle();
+                    OppMissionId = r.ReadInt32();
+                    int ownMission = UIFunctions.globaluifunctions.missionmanager.currentMissionID;
+                    if (OppMissionId != ownMission) Log("WARNING: opponent picked mission " + OppMissionId + ", you picked " + ownMission + ". Pick the same mission, or map and weather will differ.");
                     string mine = ClassName(OppClass);
                     if (mine != OppClassName) Log("WARNING: opponent's sub " + OppClassName + " is " + mine + " here (data mismatch?)");
                     Log("Opponent chose " + OppClassName);
@@ -373,10 +412,15 @@ namespace ColdWatersMP
                     ApplyPlacement();
                     break;
                 }
+                case G_STATIONS:
+                    _oppAtStations = true;
+                    Log("Opponent is at battlestations");
+                    if (_heldStations != null) ReleaseStations("opponent ready");
+                    break;
                 case G_INMISSION:
                     OppInMission = r.ReadBoolean();
                     Log("Opponent " + (OppInMission ? "is in the mission" : "left the mission"));
-                    if (!OppInMission) { OppClass = -1; OppClassName = ""; } // they will choose again
+                    if (!OppInMission) { OppClass = -1; OppClassName = ""; _oppAtStations = false; OppMissionId = -1; } // they will choose again
                     break;
                 case G_STATE:
                 {
@@ -503,5 +547,15 @@ namespace ColdWatersMP
             if (__instance.lastTimeScale == 0f) __instance.lastTimeScale = 1f;
             if (Time.timeScale == 0f) { Time.timeScale = 1f; Time.fixedDeltaTime = 0.02f; Duel.Log("Help opened: pause blocked in multiplayer"); }
         }
+    }
+}
+
+namespace ColdWatersMP
+{
+    /// <summary>The briefing after loading keeps the game paused; start both games together.</summary>
+    [HarmonyPatch(typeof(MissionManager), "Battlestations")]
+    static class Patch_Battlestations
+    {
+        static bool Prefix(MissionManager __instance) { return Duel.OnBattlestations(__instance); }
     }
 }
