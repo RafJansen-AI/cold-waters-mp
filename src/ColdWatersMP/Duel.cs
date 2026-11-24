@@ -17,7 +17,10 @@ namespace ColdWatersMP
 
         public static Session Session;
         public static System.Action<string> Log = delegate { };
-        public static float RangeNm = 6f;
+        public static float RangeNm = 6f;          // legacy single value (config); the band below is used
+        public static float RangeMinNm = 4f, RangeMaxNm = 9f; // host: start range is random in this band
+        static readonly System.Random _placeRng = new System.Random();
+        static float Rnd(float a, float b) { return a + (float)_placeRng.NextDouble() * (b - a); }
 
         // Opponent info
         public static int OppClass = -1;
@@ -36,7 +39,7 @@ namespace ColdWatersMP
                 int i = Puppet.vesselListIndex;
                 Vessel own = GameDataManager.playervesselsonlevel[0];
                 float rangeKyd = Vector3.Distance(own.transform.position, Puppet.transform.position) * GameDataManager.yardsScale / 1000f;
-                Log("SONAR range " + rangeKyd.ToString("F1") + " kyd | we hear them " + sm.signalLastPassiveReading[i].ToString("F1")
+                Log("~SONAR range " + rangeKyd.ToString("F1") + " kyd | we hear them " + sm.signalLastPassiveReading[i].ToString("F1")
                     + " (threshold " + sm.detectionThresholds.x.ToString("F1") + "), detected " + sm.detectedByPlayer[i]
                     + " | their silent " + OppRunningSilent + ", active " + OppActiveSonar + ", speed " + (Puppet.vesselmovement.shipSpeed.z * 10f).ToString("F0") + " kt"
                     + " | our active " + own.acoustics.usingActiveSonar
@@ -82,8 +85,8 @@ namespace ColdWatersMP
                 if (Session == null || Session.State != SessionState.Ready) return "";
                 string opp = OppClass >= 0 ? OppClassName : "not chosen yet";
                 string s = "Opponent sub: " + opp;
-                if (_heldStations != null) s += " | WAITING for opponent to reach battlestations (F8: start anyway)";
-                if (WaitingForOpponentChoice) s += OppClass < 0 ? " | WAITING for opponent's sub choice (F8: start anyway)" : " | WAITING for the host to start (F8: start anyway)";
+                if (_heldStations != null) s += " | WAITING for opponent to reach battlestations (Ctrl+F8: start anyway)";
+                if (WaitingForOpponentChoice) s += OppClass < 0 ? " | WAITING for opponent's sub choice (Ctrl+F8: start anyway)" : " | WAITING for the host to start (Ctrl+F8: start anyway)";
  if (Result.Length > 0) s += " | " + Result;
                 if (InDuel) s += " | duel " + (OppInMission ? "running" : "waiting for opponent to load") + (Puppet != null ? " | states " + _stateCount : "");
                 return s;
@@ -171,20 +174,20 @@ namespace ColdWatersMP
             if (_oppInOldMission && !_releasingLoad)
             {
                 _heldLoad = llm;
-                Log("Waiting for the opponent to leave the previous mission (F8: start anyway)");
+                Log("Waiting for the opponent to leave the previous mission (Ctrl+F8: start anyway)");
                 return false;
             }
             int oppCls = OppClass;
             if (oppCls < 0 && !_releasingLoad)
             {
                 _heldLoad = llm;
-                Log("Waiting for the opponent to choose a sub; the mission starts when it arrives (F8: start anyway)");
+                Log("Waiting for the opponent to choose a sub; the mission starts when it arrives (Ctrl+F8: start anyway)");
                 return false;
             }
             if (!Session.IsHost && !Match.HaveHostMatch && !_releasingLoad)
             {
                 _heldLoad = llm;
-                Log("Waiting for the host to start; you get the host's map and conditions (F8: start anyway with yours)");
+                Log("Waiting for the host to start; you get the host's map and conditions (Ctrl+F8: start anyway with yours)");
                 return false;
             }
             LevelLoadData d = llm.levelloaddata;
@@ -250,31 +253,39 @@ namespace ColdWatersMP
             Vessel own = GameDataManager.playervesselsonlevel[0];
             if (Session.IsHost)
             {
-                // Host stays where the mission put it; the client is placed RangeNm away.
+                // Host stays where the mission put it (new random heading); the client goes somewhere in the range band.
+                // Geometry: each sub sees the other within 60 deg of its bow (never in the baffles), so the
+                // aspect varies from head-on to about 120 deg between the two lines of sight and courses.
                 Vector3 hp = own.transform.position;
-                float hh = own.transform.eulerAngles.y;
-                // Try bearings ahead of the host first, then all round, for a spot in deep enough water.
+                float hh = Rnd(0f, 360f);
+                float range = Rnd(Mathf.Min(RangeMinNm, RangeMaxNm), Mathf.Max(RangeMinNm, RangeMaxNm));
+                // Try bearings off the host's bow for a spot in deep enough water; fall back to anywhere around.
                 float bearing = 0f, bestDepth = -1f, bestBearing = hh;
-                for (int i = 0; i < 16; i++)
+                for (int i = 0; i < 24; i++)
                 {
-                    bearing = i < 8 ? hh + Random.Range(-60f, 60f) : Random.Range(0f, 360f);
+                    bearing = i < 16 ? hh + Rnd(-60f, 60f) : Rnd(0f, 360f);
                     Vector3 d0 = Quaternion.Euler(0f, bearing, 0f) * Vector3.forward;
-                    float sd = SeabedFeet(hp + d0 * (RangeNm * UnitsPerNm));
+                    float sd = SeabedFeet(hp + d0 * (range * UnitsPerNm));
                     if (sd > bestDepth) { bestDepth = sd; bestBearing = bearing; }
                     if (sd >= 600f) break;
                 }
                 bearing = bestBearing;
-                if (bestDepth < 600f) Log("WARNING: no deep water found " + RangeNm + " nm from the host; best seabed " + bestDepth.ToString("0") + " ft");
+                float off = Mathf.Repeat(bearing - hh + 180f, 360f) - 180f;
+                if (off > 60f || off < -60f) hh = bearing + Rnd(-60f, 60f); // fallback bearing: turn the host so it still faces the client
+                hh = Mathf.Repeat(hh, 360f);
+                if (bestDepth < 600f) Log("~WARNING: no deep water found at the chosen range; best seabed " + bestDepth.ToString("0") + " ft");
                 Vector3 dir = Quaternion.Euler(0f, bearing, 0f) * Vector3.forward;
-                Vector3 cp = hp + dir * (RangeNm * UnitsPerNm);
+                Vector3 cp = hp + dir * (range * UnitsPerNm);
                 cp.y = hp.y;
-                float ch = Mathf.Repeat(bearing + 180f + Random.Range(-45f, 45f), 360f);
+                float ch = Mathf.Repeat(bearing + 180f + Rnd(-60f, 60f), 360f);
+                int seq = Match.SentSeq;
                 Session.SendGame(G_PLACEMENT, w =>
                 {
-                    WriteV3(w, hp); w.Write(hh); WriteV3(w, cp); w.Write(ch);
+                    WriteV3(w, hp); w.Write(hh); WriteV3(w, cp); w.Write(ch); w.Write(seq);
                 }, true);
                 _placeOwnPos = hp; _placeOwnHeading = hh; _placeOppPos = cp; _placeOppHeading = ch; _havePlacement = true;
-                Log("Duel: placed opponent " + RangeNm + " nm away, bearing " + Mathf.Repeat(bearing, 360f).ToString("F0"));
+                Log("~Duel: placed opponent " + range.ToString("F1") + " nm away, bearing " + Mathf.Repeat(bearing, 360f).ToString("F0"));
+                Log("Duel: start positions set (range " + RangeMinNm.ToString("0.#") + "-" + RangeMaxNm.ToString("0.#") + " nm)");
             }
             ApplyPlacement();
             Session.SendGame(G_INMISSION, w => w.Write(true), true);
@@ -298,7 +309,7 @@ namespace ColdWatersMP
             if (!_havePlacement || !LocalInMission) return;
             Vessel own = OwnVessel();
             if (own == null) { Log("Placement arrived before our mission was loaded; keeping it for later"); return; }
-            if (!Session.IsHost) Teleport(own, _placeOwnPos, _placeOwnHeading);
+            Teleport(own, _placeOwnPos, _placeOwnHeading); // host: same spot, new heading
             if (Puppet != null) Teleport(Puppet, _placeOppPos, _placeOppHeading);
             _havePlacement = false;
             Log("Duel: placement applied");
@@ -360,7 +371,7 @@ namespace ColdWatersMP
             }
             if (_oppAtStations) return true;
             _heldStations = mm;
-            Log("Waiting for the opponent to reach battlestations (F8: start anyway)");
+            Log("Waiting for the opponent to reach battlestations (Ctrl+F8: start anyway)");
             return false;
         }
 
@@ -546,6 +557,12 @@ namespace ColdWatersMP
                 case G_PLACEMENT:
                 {
                     Vector3 hp = ReadV3(r); float hh = r.ReadSingle(); Vector3 cp = ReadV3(r); float ch = r.ReadSingle();
+                    int seq = r.ReadInt32();
+                    if (seq != Match.AppliedSeq)
+                    {
+                        Log("Placement for another mission ignored (host match " + seq + ", ours " + Match.AppliedSeq + ")");
+                        break;
+                    }
                     // We are the client: our own sub goes to cp, the host's puppet to hp.
                     _placeOwnPos = cp; _placeOwnHeading = ch; _placeOppPos = hp; _placeOppHeading = hh;
                     _havePlacement = true;

@@ -34,6 +34,10 @@ namespace ColdWatersMP
         // ---- what the client received ----
         static bool _haveHostMatch;
         static int _hostSeq, _sentSeq;
+        /// <summary>Client: number of the host match our current mission was built from (-1: none).</summary>
+        public static int AppliedSeq = -1;
+        /// <summary>Host: number of the match we sent for our current mission.</summary>
+        public static int SentSeq { get { return _lastSentSeq; } }
         public static string HostMapName = "";
         public static string LastSummary = "";
         static Snapshot _host;
@@ -143,6 +147,7 @@ namespace ColdWatersMP
         {
             if (!_haveHostMatch || d == null) return;
             Apply(_host, d);
+            AppliedSeq = _hostSeq;
             ApplyHostDifficulty();
             LastSummary = Describe(_host);
             Duel.Log("Match applied from host: " + LastSummary);
@@ -233,6 +238,54 @@ namespace ColdWatersMP
             Duel.Log("Host picked " + Describe(s));
             Duel.OnHostMatchArrived();
             return true;
+        }
+    }
+}
+
+namespace ColdWatersMP
+{
+    /// <summary>In multiplayer, every playable submarine can be chosen in any single mission (missions often
+    /// restrict the list). The full list is the testing grounds' (single001) PlayerVessels, submarines only.</summary>
+    [HarmonyLib.HarmonyPatch(typeof(TextParser), "PopulateLevelLoadData")]
+    static class Patch_PopulateLevelLoadData_AllSubs
+    {
+        static int[] _allSubs;
+
+        static void Postfix(TextParser __instance, string filename)
+        {
+            if (!GameDataManager.missionMode || Duel.Session == null || Duel.Session.State != SessionState.Ready) return;
+            try
+            {
+                if (_allSubs == null) _allSubs = LoadAllSubs(__instance);
+                if (_allSubs == null || _allSubs.Length == 0) return;
+                PlayerFunctions pf = UIFunctions.globaluifunctions.playerfunctions;
+                System.Collections.Generic.List<int> list = new System.Collections.Generic.List<int>();
+                if (pf.playerVesselList != null) list.AddRange(pf.playerVesselList); // the mission's own subs first
+                foreach (int id in _allSubs) if (!list.Contains(id)) list.Add(id);
+                pf.playerVesselList = list.ToArray();
+                Duel.Log("~Sub choice: " + list.Count + " subs available in multiplayer");
+            }
+            catch (System.Exception ex) { Duel.Log("Could not widen the sub choice: " + ex.Message); }
+        }
+
+        static int[] LoadAllSubs(TextParser tp)
+        {
+            string[] lines = tp.OpenTextDataFile("missions/single/single001");
+            System.Collections.Generic.List<int> ids = new System.Collections.Generic.List<int>();
+            foreach (string line in lines)
+            {
+                if (!line.StartsWith("PlayerVessels=")) continue;
+                foreach (string name in line.Substring("PlayerVessels=".Length).Split(','))
+                {
+                    string n = name.Trim();
+                    if (n.Length == 0) continue;
+                    int id = tp.GetShipID(n);
+                    if (id < 0 || id >= UIFunctions.globaluifunctions.database.databaseshipdata.Length) continue;
+                    DatabaseShipData d = UIFunctions.globaluifunctions.database.databaseshipdata[id];
+                    if (d != null && d.shipType == "SUBMARINE") ids.Add(id);
+                }
+            }
+            return ids.ToArray();
         }
     }
 }

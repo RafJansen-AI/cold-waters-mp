@@ -11,12 +11,12 @@ namespace ColdWatersMP
     [BepInPlugin("cwmp", "Cold Waters MP", PluginVersion)]
     public class CwmpPlugin : BaseUnityPlugin
     {
-        public const string PluginVersion = "0.0.23";
+        public const string PluginVersion = "0.0.24";
 
         ConfigEntry<string> _role, _hostAddress, _playerName, _fakeHash;
         ConfigEntry<int> _port;
         ConfigEntry<bool> _autoStart;
-        ConfigEntry<float> _rangeNm;
+        ConfigEntry<float> _rangeNm, _rangeMin, _rangeMax;
         ConfigEntry<bool> _windowed;
         ConfigEntry<float> _teleportNm;
         Session _session;
@@ -25,7 +25,7 @@ namespace ColdWatersMP
         ConfigEntry<int> _overlayCfg;
         ConfigEntry<int> _cond, _weather, _sea, _layer, _duct, _time;
         ConfigEntry<bool> _pauseBoth, _allowTC;
-        Rect _settingsRect = new Rect(540, 10, 420, 330);
+        Rect _settingsRect = new Rect(540, 10, 470, 520);
         readonly List<string> _logLines = new List<string>();
 
         void Awake()
@@ -36,7 +36,9 @@ namespace ColdWatersMP
             _autoStart = Config.Bind("Network", "AutoStart", true, "Host/join automatically at startup");
             _playerName = Config.Bind("Player", "Name", System.Environment.UserName, "Shown to your opponent");
             _fakeHash = Config.Bind("Debug", "FakeDllHash", "", "Testing only: pretend Assembly-CSharp.dll has this hash");
-            _rangeNm = Config.Bind("Duel", "RangeNm", 6f, "Starting distance between the subs (host decides)");
+            _rangeNm = Config.Bind("Duel", "RangeNm", 6f, "Old setting, not used any more (see RangeMinNm/RangeMaxNm)");
+            _rangeMin = Config.Bind("Duel", "RangeMinNm", 4f, "Host: shortest starting distance (the actual one is random in the band)");
+            _rangeMax = Config.Bind("Duel", "RangeMaxNm", 9f, "Host: longest starting distance");
             _teleportNm = Config.Bind("Debug", "TeleportNm", 1.5f, "Testing: F7 jumps your sub this far off the opponent's bow");
             _cond = Config.Bind("Match", "Conditions", 0, "Host: 0 = as the mission says, 1 = random (same for both), 2 = custom below");
             _weather = Config.Bind("Match", "Weather", 0, "Host, custom: weather index (0 = clear ...)");
@@ -47,9 +49,10 @@ namespace ColdWatersMP
             _pauseBoth = Config.Bind("Match", "PauseBoth", false, "Host: true = the Esc menu pauses both games; false = no pausing");
             _allowTC = Config.Bind("Match", "TimeCompression", true, "Host: allow time compression when both players ask for it");
             LoadMatchSettings();
-            _overlayCfg = Config.Bind("Display", "Overlay", 0, "0 = full (testing), 1 = compact one-liner, 2 = off. F9 cycles.");
+            _overlayCfg = Config.Bind("Display", "Overlay", 1, "0 = full (testing), 1 = compact one-liner, 2 = off. Ctrl+F9 cycles.");
+            Duel.RangeMinNm = _rangeMin.Value; Duel.RangeMaxNm = _rangeMax.Value;
             _overlayMode = Mathf.Clamp(_overlayCfg.Value, 0, 2);
-            _windowed = Config.Bind("Display", "Windowed1280x720", false, "Testing: force a 1280x720 window");
+            _windowed = Config.Bind("Display", "ForceWindowed1280x720", false, "Testing only: force a 1280x720 window. Don't change the window size afterwards: the game keeps the HUD layout of the size it first had.");
             // Keep simulating and networking while the window is not focused (two copies on one PC, Alt+Tab).
             Application.runInBackground = true;
 
@@ -57,13 +60,28 @@ namespace ColdWatersMP
             string dll = Path.Combine(Paths.ManagedPath, "Assembly-CSharp.dll");
             fp["Assembly-CSharp.dll"] = string.IsNullOrEmpty(_fakeHash.Value) ? Fingerprint.HashFile(dll) : _fakeHash.Value;
             Log("Fingerprint Assembly-CSharp.dll = " + fp["Assembly-CSharp.dll"]);
+            // Game data that changes combat: both players must have the same (edited weapons.txt etc. are refused).
+            try
+            {
+                foreach (string root in Directory.GetDirectories(Application.streamingAssetsPath))
+                {
+                    string top = Path.GetFileName(root);
+                    foreach (string sub in new string[] { "weapons", "vessels", "sensors", "aircraft", "environment" })
+                        if (Directory.Exists(Path.Combine(root, sub))) fp[top + "/" + sub] = Fingerprint.HashFolder(Path.Combine(root, sub));
+                    foreach (string file in new string[] { "config.txt", "subsystems.txt" })
+                        if (File.Exists(Path.Combine(root, file))) fp[top + "/" + file] = Fingerprint.HashFile(Path.Combine(root, file));
+                }
+                Log("Fingerprinted " + (fp.Count - 1) + " game data sets");
+            }
+            catch (System.Exception ex) { Log("Game data fingerprint failed: " + ex.Message); }
 
             _session = new Session(new UdpTransport(), _playerName.Value, PluginVersion, fp, Log);
             Duel.Init(_session, Log, _rangeNm.Value);
+            MenuTab.OpenWindow = delegate { _showSettings = true; };
             new Harmony("cwmp").PatchAll(typeof(CwmpPlugin).Assembly);
             Log("Harmony patches applied");
             if (_autoStart.Value) StartSession();
-            Log("Cold Waters MP " + PluginVersion + " loaded. F6: match settings, F7: debug teleport near opponent, F8: start held mission, F9: overlay full/compact/off, F10: (re)start session, F11: send test chat");
+            Log("Cold Waters MP " + PluginVersion + " loaded. Ctrl+F6: match settings, Ctrl+F7: debug teleport near opponent, Ctrl+F8: start held mission, Ctrl+F9: overlay full/compact/off, Ctrl+F11: send test chat, Ctrl+F12: (re)start session");
         }
 
         void Start()
@@ -83,16 +101,34 @@ namespace ColdWatersMP
 
         void Update()
         {
-            if (Input.GetKeyDown(KeyCode.F9)) { _overlayMode = (_overlayMode + 1) % 3; _overlayCfg.Value = _overlayMode; }
-            if (Input.GetKeyDown(KeyCode.F6)) _showSettings = !_showSettings;
-            if (Input.GetKeyDown(KeyCode.F10)) { _session.Leave(); StartSession(); }
-            if (Input.GetKeyDown(KeyCode.F7)) Duel.DebugTeleportNearOpponent(_teleportNm.Value);
-            if (Input.GetKeyDown(KeyCode.F8)) { Duel.ReleaseHeldLoad("F8 pressed"); Duel.ReleaseStations("F8 pressed"); }
-            if (Input.GetKeyDown(KeyCode.F11)) _session.SendChat("ping from " + _playerName.Value + " at " + Time.realtimeSinceStartup.ToString("F1") + "s");
+            // All mod keys are Ctrl + F-key: the plain F-keys belong to the game (F6 signature, F7 stores, F8 damage,
+            // F9 time compression, F10 hide HUD, F11 stop time compression).
+            bool ctrl = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
+            if (ctrl)
+            {
+                if (Input.GetKeyDown(KeyCode.F9)) { _overlayMode = (_overlayMode + 1) % 3; _overlayCfg.Value = _overlayMode; }
+                if (Input.GetKeyDown(KeyCode.F6)) _showSettings = !_showSettings;
+                if (Input.GetKeyDown(KeyCode.F12)) { _session.Leave(); StartSession(); }
+                if (Input.GetKeyDown(KeyCode.F7)) Duel.DebugTeleportNearOpponent(_teleportNm.Value);
+                if (Input.GetKeyDown(KeyCode.F8)) { Duel.ReleaseHeldLoad("Ctrl+F8 pressed"); Duel.ReleaseStations("Ctrl+F8 pressed"); }
+                if (Input.GetKeyDown(KeyCode.F11)) _session.SendChat("ping from " + _playerName.Value + " at " + Time.realtimeSinceStartup.ToString("F1") + "s");
+            }
             try { _session.Update(); }
             catch (System.Exception ex) { Log("Session error: " + ex); }
             try { Duel.Update(); }
             catch (System.Exception ex) { Log("Duel error: " + ex); }
+            try { SnowFix(); } catch (System.Exception) { }
+        }
+
+        /// <summary>The game switches snow on in GetEnvironment, then CreateEnvironment switches it off again and
+        /// nothing turns it back on (rain has that code, snow doesn't). Show it above water with the map closed.</summary>
+        static void SnowFix()
+        {
+            if (!GameDataManager.HUDActive || UIFunctions.globaluifunctions == null) return;
+            LevelLoadManager llm = UIFunctions.globaluifunctions.levelloadmanager;
+            if (llm == null || llm.snow == null) return;
+            bool want = LevelLoadManager.isSnowing && !ManualCameraZoom.underwater && !llm.tacticalmap.background.activeSelf;
+            if (llm.snow.activeSelf != want) llm.snow.SetActive(want);
         }
 
         void OnDestroy() { if (_session != null) _session.Leave(); }
@@ -109,7 +145,7 @@ namespace ColdWatersMP
         {
             _cond.Value = (int)Match.Conditions; _weather.Value = Match.Weather; _sea.Value = Match.SeaState;
             _layer.Value = Match.Layer; _duct.Value = Match.Duct; _time.Value = Match.TimeChoice;
-            _rangeNm.Value = Duel.RangeNm;
+            _rangeMin.Value = Duel.RangeMinNm; _rangeMax.Value = Duel.RangeMaxNm;
             _pauseBoth.Value = Match.HostPauseBoth; _allowTC.Value = Match.HostAllowTC;
         }
 
@@ -125,8 +161,35 @@ namespace ColdWatersMP
             return value;
         }
 
+        /// <summary>Connection part of the multiplayer window: role, address, name, connect.</summary>
+        void ConnectionSection()
+        {
+            bool connected = _session.State == SessionState.Ready;
+            GUILayout.Label("Status: " + _session.Status + (_session.Transport.IsConnected ? "  (" + _session.Transport.RttMs.ToString("F0") + " ms)" : ""));
+            bool host = _role.Value.Trim().ToLowerInvariant() != "client";
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("I am the", GUILayout.Width(110));
+            if (GUILayout.Button(host ? "[ Host ]" : "Host", GUILayout.Width(100)) && !host) { _role.Value = "Host"; host = true; }
+            if (GUILayout.Button(!host ? "[ Client ]" : "Client", GUILayout.Width(100)) && host) { _role.Value = "Client"; host = false; }
+            GUILayout.EndHorizontal();
+            if (!host)
+            {
+                GUILayout.BeginHorizontal();
+                GUILayout.Label("Host address", GUILayout.Width(110));
+                _hostAddress.Value = GUILayout.TextField(_hostAddress.Value, 64, GUILayout.Width(200));
+                GUILayout.EndHorizontal();
+            }
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button(connected ? "Reconnect" : (host ? "Start hosting" : "Join"), GUILayout.Width(150))) { _session.Leave(); StartSession(); }
+            if (GUILayout.Button("Close", GUILayout.Width(100))) _showSettings = false;
+            GUILayout.EndHorizontal();
+            GUILayout.Label("To play: both connect here, then Single Mission. Pick any mission and your sub; the host's map, conditions and difficulty are used.");
+            GUILayout.Space(6);
+        }
+
         void SettingsWindow(int id)
         {
+            ConnectionSection();
             if (!_session.IsHost)
             {
                 GUILayout.Label("The host picks the map and conditions.");
@@ -138,7 +201,7 @@ namespace ColdWatersMP
             }
             GUILayout.Label("Map: the single mission you start (its ships are removed).");
             int before = (int)Match.Conditions * 1000 + Match.Weather * 100 + Match.SeaState * 10 + Match.Layer + Match.Duct * 7 + Match.TimeChoice * 13;
-            float rangeBefore = Duel.RangeNm;
+            float rangeBefore = Duel.RangeMinNm * 100f + Duel.RangeMaxNm;
             string[] modes = { "As the mission says", "Random (same for both)", "Custom" };
             Match.Conditions = (Match.CondMode)Stepper("Conditions", (int)Match.Conditions, 3, modes[(int)Match.Conditions]);
             if (Match.Conditions == Match.CondMode.Custom)
@@ -153,14 +216,12 @@ namespace ColdWatersMP
                 Match.Duct = Stepper("Surface duct", Mathf.Clamp(Match.Duct, 0, str.Length), str.Length + 1, Match.Duct == 0 ? "Random" : Match.Name(str, Match.Duct - 1));
                 Match.TimeChoice = Stepper("Time", Mathf.Clamp(Match.TimeChoice, 0, 4), 5, Match.TimeNames[Mathf.Clamp(Match.TimeChoice, 0, 4)]);
             }
-            int r = Mathf.RoundToInt(Duel.RangeNm * 2f), r0 = r;
-            GUILayout.BeginHorizontal();
-            GUILayout.Label("Start range", GUILayout.Width(110));
-            if (GUILayout.Button("<", GUILayout.Width(28)) && r > 1) r--;
-            GUILayout.Label(Duel.RangeNm.ToString("0.0#") + " nm", GUILayout.Width(200));
-            if (GUILayout.Button(">", GUILayout.Width(28)) && r < 60) r++;
-            GUILayout.EndHorizontal();
-            if (r != r0) Duel.RangeNm = r / 2f; // only round when the host actually changes it
+            // Start range band, whole nm (the actual range is random inside it and not shown to anyone).
+            int lo = Mathf.RoundToInt(Duel.RangeMinNm), hi = Mathf.RoundToInt(Duel.RangeMaxNm);
+            int nlo = Stepper("Range from", lo - 1, 20, lo + " nm") + 1;
+            int nhi = Stepper("Range to", hi - 1, 25, hi + " nm") + 1;
+            if (nlo != lo) { Duel.RangeMinNm = nlo; if (Duel.RangeMaxNm < nlo) Duel.RangeMaxNm = nlo; }
+            if (nhi != hi) { Duel.RangeMaxNm = nhi; if (Duel.RangeMinNm > nhi) Duel.RangeMinNm = nhi; }
             bool pb = Match.HostPauseBoth, tc = Match.HostAllowTC;
             Match.HostPauseBoth = Stepper("Pause", Match.HostPauseBoth ? 1 : 0, 2, Match.HostPauseBoth ? "Esc pauses both" : "Blocked") == 1;
             Match.HostAllowTC = Stepper("Time compr.", Match.HostAllowTC ? 1 : 0, 2, Match.HostAllowTC ? "When both ask" : "Off") == 1;
@@ -169,18 +230,18 @@ namespace ColdWatersMP
             GUILayout.Label("Neutral traffic: off (not synced yet). Settings apply from the next mission start.");
             if (Match.LastSummary.Length > 0) GUILayout.Label("Last match: " + Match.LastSummary);
             int after = (int)Match.Conditions * 1000 + Match.Weather * 100 + Match.SeaState * 10 + Match.Layer + Match.Duct * 7 + Match.TimeChoice * 13;
-            if (after != before || rangeBefore != Duel.RangeNm) SaveMatchSettings();
+            if (after != before || rangeBefore != Duel.RangeMinNm * 100f + Duel.RangeMaxNm) SaveMatchSettings();
             GUI.DragWindow();
         }
 
         void OnGUI()
         {
-            if (_showSettings) _settingsRect = GUILayout.Window(0xC3A1, _settingsRect, SettingsWindow, "Multiplayer match settings (F6)");
+            if (_showSettings) _settingsRect = GUILayout.Window(0xC3A1, _settingsRect, SettingsWindow, "Cold Waters Multiplayer (Ctrl+F6)");
             if (_overlayMode == 2) return;
             if (_overlayMode == 1)
             {
                 string c = _session.Transport.IsConnected ? "MP " + (_session.IsHost ? "host" : "client") + " " + _session.Transport.RttMs.ToString("F0") + " ms" : "MP: " + _session.Status;
-                if (Duel.WaitingForOpponentChoice) c += " | waiting (F8 starts)";
+                if (Duel.WaitingForOpponentChoice) c += " | waiting (Ctrl+F8 starts)";
                 string t = TimeSync.StatusLine; if (t.Length > 0) c += " | " + t;
                 if (Duel.Result.Length > 0) c += " | " + Duel.Result;
                 GUI.Label(new Rect(10, 4, 900, 22), c);
@@ -200,8 +261,11 @@ namespace ColdWatersMP
 
         void Log(string msg)
         {
+            bool quiet = msg.StartsWith("~"); // file only: things players must not see (exact range, sonar readings)
+            if (quiet) msg = msg.Substring(1);
             msg = System.DateTime.Now.ToString("HH:mm:ss.f") + " " + msg;
             Logger.LogInfo("CWMP " + msg);
+            if (quiet) return;
             _logLines.Add(msg);
             if (_logLines.Count > 50) _logLines.RemoveAt(0);
         }

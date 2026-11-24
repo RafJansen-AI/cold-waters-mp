@@ -24,6 +24,30 @@ namespace ColdWatersMP
                 return ToHex(sha.ComputeHash(fs));
         }
 
+        /// <summary>SHA-256 over every file in a folder (sorted relative paths + contents), or "missing".</summary>
+        public static string HashFolder(string dir)
+        {
+            if (!Directory.Exists(dir)) return "missing";
+            string[] files = Directory.GetFiles(dir, "*", SearchOption.AllDirectories);
+            System.Array.Sort(files, System.StringComparer.Ordinal);
+            using (SHA256 sha = new SHA256Managed())
+            {
+                byte[] buf = new byte[65536];
+                foreach (string f in files)
+                {
+                    byte[] name = Encoding.UTF8.GetBytes(f.Substring(dir.Length).Replace('\\', '/').ToLowerInvariant());
+                    sha.TransformBlock(name, 0, name.Length, null, 0);
+                    using (FileStream fs = File.OpenRead(f))
+                    {
+                        int n;
+                        while ((n = fs.Read(buf, 0, buf.Length)) > 0) sha.TransformBlock(buf, 0, n, null, 0);
+                    }
+                }
+                sha.TransformFinalBlock(new byte[0], 0, 0);
+                return ToHex(sha.Hash);
+            }
+        }
+
         public static string ToHex(byte[] b)
         {
             StringBuilder sb = new StringBuilder(b.Length * 2);
