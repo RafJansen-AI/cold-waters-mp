@@ -11,7 +11,7 @@ namespace ColdWatersMP
 {
     public static class Weapons
     {
-        public const byte G_TORP_SPAWN = 5, G_TORP_STATE = 6, G_TORP_END = 7, G_TORP_HIT = 8, G_DAMAGE = 9, G_NOISEMAKER = 11;
+        public const byte G_TORP_SPAWN = 5, G_TORP_STATE = 6, G_TORP_END = 7, G_TORP_HIT = 8, G_DAMAGE = 9, G_NOISEMAKER = 11, G_KNUCKLE = 14;
 
         class Incoming
         {
@@ -219,6 +219,28 @@ namespace ColdWatersMP
             Duel.Log("Dropped noisemaker");
         }
 
+        /// <summary>Our sub formed a knuckle (hard turn at speed, PlayerFunctions.CheckIfKnuckle).</summary>
+        public static void OnPlayerKnuckle(Vector3 pos)
+        {
+            if (!Active) return;
+            S.SendGame(G_KNUCKLE, w => WriteV3(w, pos), true);
+            Duel.Log("Formed a knuckle");
+        }
+
+        /// <summary>Same as an AI sub's knuckle (VesselAI): a knuckle noisemaker in the water, no sonar callout.</summary>
+        static void SpawnOpponentKnuckle(Vector3 pos)
+        {
+            UIFunctions ui = UIFunctions.globaluifunctions;
+            DatabaseCountermeasureData cd = ui.database.databasecountermeasuredata[ui.playerfunctions.sensormanager.knuckleID];
+            Noisemaker n = ObjectPoolManager.CreatePooled(cd.countermeasureObject, pos, Quaternion.identity).GetComponent<Noisemaker>();
+            n.gameObject.SetActive(true);
+            n.tacMapNoisemakerIcon.shipDisplayIcon.color = ui.playerfunctions.sensormanager.tacticalmap.navyColors[1];
+            n.databasecountermeasuredata = cd;
+            n.playerGenerated = false;
+            ui.playerfunctions.sensormanager.AddNoiseMakerToArray(n);
+            Duel.Log("Opponent formed a knuckle");
+        }
+
         /// <summary>Same as an AI sub's drop (Enemy_Noisemaker.DropNoisemaker).</summary>
         static void SpawnOpponentNoisemaker(int cmId, Vector3 pos, Vector3 eul)
         {
@@ -356,6 +378,16 @@ namespace ColdWatersMP
                     }
                     return true;
                 }
+                case G_KNUCKLE:
+                {
+                    Vector3 p = ReadV3(r);
+                    if (Duel.InDuel)
+                    {
+                        try { SpawnOpponentKnuckle(p); }
+                        catch (System.Exception ex) { Duel.Log("Knuckle spawn failed: " + ex.Message); }
+                    }
+                    return true;
+                }
                 case G_DAMAGE:
                 {
                     float f = r.ReadSingle(); bool sinking = r.ReadBoolean();
@@ -440,6 +472,18 @@ namespace ColdWatersMP
     }
 
     /// <summary>Player noisemaker drops (WeaponSource.DropNoisemaker is also used by nothing else for the player).</summary>
+    [HarmonyPatch(typeof(PlayerFunctions), "CheckIfKnuckle")]
+    static class Patch_CheckIfKnuckle
+    {
+        static void Prefix(out bool __state) { __state = SensorManager.playerKnuckle; }
+
+        static void Postfix(PlayerFunctions __instance, bool __state)
+        {
+            if (!Duel.InDuel || __state || !SensorManager.playerKnuckle) return; // no new knuckle
+            Weapons.OnPlayerKnuckle(__instance.playerVessel.vesselmovement.rudder[0].position);
+        }
+    }
+
     [HarmonyPatch(typeof(WeaponSource), "DropNoisemaker")]
     static class Patch_DropNoisemaker
     {
