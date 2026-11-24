@@ -99,6 +99,35 @@ namespace ColdWatersMP
             Incoming inc = new Incoming { T = t, Pos0 = pos, Pos1 = pos, Euler1 = eul, T0 = 0, T1 = 0, Local1 = Time.time, Count = 0, SpawnLocal = Time.time };
             _incoming[id] = inc;
             Duel.Log("Opponent fired torpedo #" + id + " (" + wd.weaponName + ")");
+            try { LaunchTransient(Duel.Puppet, wd); }
+            catch (System.Exception ex) { Duel.Log("Launch transient check failed: " + ex.Message); }
+        }
+
+        /// <summary>Same rule as the AI's launch (Enemy_Torpedo.FireTorpedo): if our sonar can hear the
+        /// launch transient, give the "launch transient" sonar report with its bearing.</summary>
+        static void LaunchTransient(Vessel firer, DatabaseWeaponData wd)
+        {
+            Vessel own = GameDataManager.playervesselsonlevel[0];
+            if (own == null || firer == null || wd.swimOut) return;
+            PlayerFunctions pf = UIFunctions.globaluifunctions.playerfunctions;
+            SensorManager sm = pf.sensormanager;
+            float heard = sm.CheckCanHearTransient(own, firer);
+            if (heard <= 10f) { Duel.Log("Launch transient not heard (" + heard.ToString("F1") + ")"); return; }
+            Transform nav = own.acoustics.sensorNavigator.transform;
+            nav.LookAt(firer.transform.position);
+            float brg = nav.localEulerAngles.y;
+            if (brg < 0f) brg += 360f;
+            string msg;
+            if (sm.detectedByPlayer[firer.vesselListIndex])
+            {
+                pf.voicemanager.currentVesselIndex = firer.vesselListIndex;
+                msg = LanguageManager.GetDictionaryString(LanguageManager.messageLogDictionary, "TransientKnown");
+                msg = msg.Replace("<CONTACT>", pf.GetFullContactName(sm.tacticalmap.mapContact[firer.vesselListIndex].contactText.text, firer.vesselListIndex));
+            }
+            else msg = LanguageManager.GetDictionaryString(LanguageManager.messageLogDictionary, "TransientUnknown");
+            msg = msg.Replace("<BRG>", brg.ToString("0"));
+            pf.PlayerMessage(msg, pf.messageLogColors["Sonar"], "TransientKnown");
+            Duel.Log("Launch transient heard (" + heard.ToString("F1") + "), bearing " + brg.ToString("0"));
         }
 
         /// <summary>Called from the Torpedo.FixedUpdate prefix for puppet torpedoes instead of the game's logic.</summary>
