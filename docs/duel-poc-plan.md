@@ -58,6 +58,7 @@ is just an enemy ship moving in a way it can't predict.
 **PoC: disabled** (Raf, 2026-11-24). A prefix on `PlayerFunctions.SetTimeCompression()` keeps `Time.timeScale = 1`.
 This also removes a sync risk, because `fixedDeltaTime` changes with compression (0.02 at 1x, 0.06 at 10x).
 Later it becomes a match setting (see below), using propose → host decides → both apply.
+Raf's idea (2026-11-24): compression is active only while **both** players hold it on (e.g. both press a key). It's simple and fair, because either side can drop back to 1x at any time.
 
 ### End of match
 
@@ -119,6 +120,19 @@ compression [my judgment].
 Random traffic needs extra sync work: neutral ships must be the same on both machines. The simplest approach is for
 the host to own all traffic and stream it like the opponent's sub (more puppets, same code). It adds an estimated
 1–2 weeks, which is why it's off in the PoC.
+
+### Raf's notes from the first torpedo test (2026-11-24)
+
+- **Separate Multiplayer entry in the main menu**: host/join, lobby with the settings above, instead of piggybacking on the
+  single-mission flow. This also fixes the "both sides must pick a sub before the host starts" race.
+- **Conditions**: choose them, or pick "random" (the host rolls once and sends the result).
+- **Neutrals**: choose whether there is neutral traffic (see Random traffic above).
+- **Torpedo decoys / noisemakers need a design.** A decoy is launched by the target, but the firer's game runs the
+  torpedo's seeker. The firer's game must therefore see the target's decoys as puppets (spawn, position, lifetime)
+  so its seeker can be seduced. Open questions: whether DotMod's seeker logic reads decoys from a list we can inject into,
+  and the 100–200 ms latency on a decoy that has to work in the last seconds [uncertain, needs a code check].
+- **Launch detection callout**: the target must get the game's "torpedo in the water" callout and contact when the
+  opponent fires. Treated as a PoC bug, not a later feature.
 
 ## After the PoC (not in scope now)
 
