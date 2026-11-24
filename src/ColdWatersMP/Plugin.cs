@@ -11,7 +11,7 @@ namespace ColdWatersMP
     [BepInPlugin("cwmp", "Cold Waters MP", PluginVersion)]
     public class CwmpPlugin : BaseUnityPlugin
     {
-        public const string PluginVersion = "0.0.24";
+        public const string PluginVersion = "0.0.25";
 
         ConfigEntry<string> _role, _hostAddress, _playerName, _fakeHash;
         ConfigEntry<int> _port;
@@ -124,10 +124,10 @@ namespace ColdWatersMP
         /// nothing turns it back on (rain has that code, snow doesn't). Show it above water with the map closed.</summary>
         static void SnowFix()
         {
-            if (!GameDataManager.HUDActive || UIFunctions.globaluifunctions == null) return;
+            if (UIFunctions.globaluifunctions == null) return;
             LevelLoadManager llm = UIFunctions.globaluifunctions.levelloadmanager;
             if (llm == null || llm.snow == null) return;
-            bool want = LevelLoadManager.isSnowing && !ManualCameraZoom.underwater && !llm.tacticalmap.background.activeSelf;
+            bool want = GameDataManager.HUDActive && LevelLoadManager.isSnowing && !ManualCameraZoom.underwater && !llm.tacticalmap.background.activeSelf;
             if (llm.snow.activeSelf != want) llm.snow.SetActive(want);
         }
 

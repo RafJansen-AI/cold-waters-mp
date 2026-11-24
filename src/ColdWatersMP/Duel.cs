@@ -56,6 +56,7 @@ namespace ColdWatersMP
         public static bool LocalInMission;
         public static Vessel Puppet;
         static bool _haveState, _havePlacement;
+        static int _placeSeq = -1; // client: the host match this placement belongs to
         static Vector3 _placeOwnPos, _placeOppPos;
         static float _placeOwnHeading, _placeOppHeading;
         static float _sendTimer;
@@ -110,6 +111,7 @@ namespace ColdWatersMP
                     OppClass = -1; OppClassName = ""; OppInMission = false; _oppInOldMission = false;
                     TimeSync.Reset();             // never stay paused or compressed for a peer that is gone
                     Match.OnHostLeftMission();    // client: the host's map is stale after a reconnect
+                    Match.AppliedSeq = -1; _havePlacement = false; // a restarted host counts its matches from 1 again
                 }
             };
         }
@@ -169,6 +171,7 @@ namespace ColdWatersMP
             _ownAtStations = false; _heldStations = null; // _oppAtStations may already be true: they can be quicker
             Weapons.Reset();
             if (!Active || !GameDataManager.missionMode) return true;
+            if (!Session.IsHost && !_releasingLoad) Match.AppliedSeq = -1; // set again by ClientApply below
             if (!_choiceMade) OnSubAccepted(); // fallback: make sure the opponent learns our sub
             if (Session.IsHost && !_releasingLoad) Match.HostPrepare(llm.levelloaddata); // our map and conditions, for both of us (once)
             if (_oppInOldMission && !_releasingLoad)
@@ -283,7 +286,7 @@ namespace ColdWatersMP
                 {
                     WriteV3(w, hp); w.Write(hh); WriteV3(w, cp); w.Write(ch); w.Write(seq);
                 }, true);
-                _placeOwnPos = hp; _placeOwnHeading = hh; _placeOppPos = cp; _placeOppHeading = ch; _havePlacement = true;
+                _placeOwnPos = hp; _placeOwnHeading = hh; _placeOppPos = cp; _placeOppHeading = ch; _havePlacement = true; _placeSeq = seq;
                 Log("~Duel: placed opponent " + range.ToString("F1") + " nm away, bearing " + Mathf.Repeat(bearing, 360f).ToString("F0"));
                 Log("Duel: start positions set (range " + RangeMinNm.ToString("0.#") + "-" + RangeMaxNm.ToString("0.#") + " nm)");
             }
@@ -307,6 +310,15 @@ namespace ColdWatersMP
         static void ApplyPlacement()
         {
             if (!_havePlacement || !LocalInMission) return;
+            if (!Session.IsHost && _placeSeq != Match.AppliedSeq)
+            {
+                if (_placeSeq < Match.AppliedSeq || Match.AppliedSeq < 0)
+                {
+                    _havePlacement = false; // from an earlier match (or we started without the host's map)
+                    Log("Placement for another mission ignored (host match " + _placeSeq + ", ours " + Match.AppliedSeq + ")");
+                }
+                return; // a newer one: keep it until our load has applied that match
+            }
             Vessel own = OwnVessel();
             if (own == null) { Log("Placement arrived before our mission was loaded; keeping it for later"); return; }
             Teleport(own, _placeOwnPos, _placeOwnHeading); // host: same spot, new heading
@@ -558,14 +570,10 @@ namespace ColdWatersMP
                 {
                     Vector3 hp = ReadV3(r); float hh = r.ReadSingle(); Vector3 cp = ReadV3(r); float ch = r.ReadSingle();
                     int seq = r.ReadInt32();
-                    if (seq != Match.AppliedSeq)
-                    {
-                        Log("Placement for another mission ignored (host match " + seq + ", ours " + Match.AppliedSeq + ")");
-                        break;
-                    }
-                    // We are the client: our own sub goes to cp, the host's puppet to hp.
+                    // We are the client: our own sub goes to cp, the host's puppet to hp. The host often sends this
+                    // before our own load has applied its match, so keep it with its number; ApplyPlacement checks it.
                     _placeOwnPos = cp; _placeOwnHeading = ch; _placeOppPos = hp; _placeOppHeading = hh;
-                    _havePlacement = true;
+                    _havePlacement = true; _placeSeq = seq;
                     ApplyPlacement();
                     break;
                 }

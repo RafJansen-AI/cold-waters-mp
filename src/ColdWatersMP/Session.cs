@@ -28,7 +28,7 @@ namespace ColdWatersMP
         public static string HashFolder(string dir)
         {
             if (!Directory.Exists(dir)) return "missing";
-            string[] files = Directory.GetFiles(dir, "*", SearchOption.AllDirectories);
+            string[] files = Directory.GetFiles(dir, "*.txt", SearchOption.AllDirectories); // the data is text; skip big binaries
             System.Array.Sort(files, System.StringComparer.Ordinal);
             using (SHA256 sha = new SHA256Managed())
             {
@@ -239,6 +239,8 @@ namespace ColdWatersMP
                 if (!theirs.TryGetValue(kv.Key, out other)) diffs.Add(kv.Key + " missing");
                 else if (other != kv.Value) diffs.Add(kv.Key + " differs");
             }
+            foreach (string k in theirs.Keys)
+                if (!_fingerprint.ContainsKey(k)) diffs.Add(k + " only on the client");
             return diffs.Count == 0 ? null : "build mismatch: " + string.Join(", ", diffs.ToArray());
         }
 
