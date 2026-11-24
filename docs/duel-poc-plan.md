@@ -136,7 +136,10 @@ the host to own all traffic and stream it like the opponent's sub (more puppets,
   Worse: incoming torpedoes are driven in FixedUpdate, which stops while paused, so a paused player probably can't be hit.
 - **Testing aids:** F7 debug teleport (0.0.10) jumps your sub close to the opponent's bow. Keep weapon minimum ranges
   and the 5 s arming time in mind.
-- **Rocket-delivered weapons** (Vjuga, ASROC-type): only the carrier is replicated so far, not the torpedo it drops.
+- **Rocket-delivered weapons** (Vjuga, Vodopad, ASROC-type): torpedo payloads are replicated from 0.0.11. Depth-bomb
+  payloads (nuclear/ASW depth charges, `UseDepthBomb`) are not yet: they are `Projectile_DepthCharge`, a separate path.
+- **Difficulty** can be changed in Options at any time, also mid-match. In MP it should be a match setting, fixed by
+  the host before start and locked during the match (low priority for friendly duels).
 - **Launch detection callout**: the target must get the game's "torpedo in the water" callout and contact when the
   opponent fires. Treated as a PoC bug, not a later feature.
 

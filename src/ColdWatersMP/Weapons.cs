@@ -39,17 +39,20 @@ namespace ColdWatersMP
         }
 
         public static bool IsPuppetTorpedo(Torpedo t) { return t != null && _puppetTorps.Contains(t); }
+        public static bool IsOwnTorpedo(Torpedo t) { return t != null && _ownIds.ContainsKey(t); }
 
         // ---------- firer side ----------
 
-        public static void OnPlayerFired(Torpedo t)
+        public static void OnPlayerFired(Torpedo t) { OnPlayerFired(t, false); }
+
+        public static void OnPlayerFired(Torpedo t, bool payload)
         {
             if (!Active || t == null) return;
             int id = _nextId++;
             _own[id] = t; _ownIds[t] = id;
             int weaponId = t.databaseweapondata.weaponID;
             Vector3 pos = t.transform.position; Vector3 eul = t.transform.eulerAngles;
-            S.SendGame(G_TORP_SPAWN, w => { w.Write(id); w.Write(weaponId); WriteV3(w, pos); WriteV3(w, eul); }, true);
+            S.SendGame(G_TORP_SPAWN, w => { w.Write(id); w.Write(weaponId); WriteV3(w, pos); WriteV3(w, eul); w.Write(payload); }, true);
             Duel.Log("Fired torpedo #" + id + " (" + t.databaseweapondata.weaponName + ")");
         }
 
@@ -81,7 +84,7 @@ namespace ColdWatersMP
 
         // ---------- target side ----------
 
-        static void SpawnPuppetTorpedo(int id, int weaponId, Vector3 pos, Vector3 eul)
+        static void SpawnPuppetTorpedo(int id, int weaponId, Vector3 pos, Vector3 eul, bool payload)
         {
             if (Duel.Puppet == null) return;
             DatabaseWeaponData wd = UIFunctions.globaluifunctions.database.databaseweapondata[weaponId];
@@ -99,6 +102,7 @@ namespace ColdWatersMP
             Incoming inc = new Incoming { T = t, Pos0 = pos, Pos1 = pos, Euler1 = eul, T0 = 0, T1 = 0, Local1 = Time.time, Count = 0, SpawnLocal = Time.time };
             _incoming[id] = inc;
             Duel.Log("Opponent fired torpedo #" + id + " (" + wd.weaponName + ")");
+            if (payload) return; // dropped by a rocket far from the firer: no launch transient
             try { LaunchTransient(Duel.Puppet, wd); }
             catch (System.Exception ex) { Duel.Log("Launch transient check failed: " + ex.Message); }
         }
@@ -235,8 +239,8 @@ namespace ColdWatersMP
             {
                 case G_TORP_SPAWN:
                 {
-                    int id = r.ReadInt32(); int wid = r.ReadInt32(); Vector3 p = ReadV3(r); Vector3 e = ReadV3(r);
-                    if (Duel.InDuel) SpawnPuppetTorpedo(id, wid, p, e);
+                    int id = r.ReadInt32(); int wid = r.ReadInt32(); Vector3 p = ReadV3(r); Vector3 e = ReadV3(r); bool payload = r.ReadBoolean();
+                    if (Duel.InDuel) SpawnPuppetTorpedo(id, wid, p, e, payload);
                     return true;
                 }
                 case G_TORP_STATE:
@@ -342,20 +346,34 @@ namespace ColdWatersMP
     {
         static void Postfix(Torpedo __instance)
         {
-            if (Patch_FireTube.InFireTube && Patch_FireTube.Launched == null) Patch_FireTube.Launched = __instance;
+            if (Patch_FireTube.InFireTube && Patch_FireTube.Launched == null) { Patch_FireTube.Launched = __instance; return; }
+            Torpedo parent = Patch_Torpedo_FixedUpdate.OwnParent;
+            if (parent != null && __instance != parent && !Weapons.IsPuppetTorpedo(__instance) && !Weapons.IsOwnTorpedo(__instance))
+            {
+                Duel.Log("Payload released by " + parent.databaseweapondata.weaponName);
+                Weapons.OnPlayerFired(__instance, true);
+            }
         }
     }
 
-    /// <summary>Puppet torpedoes follow the network; the game's own guidance must not run.</summary>
+    /// <summary>Puppet torpedoes follow the network; the game's own guidance must not run.
+    /// For our own weapons, remember which one is updating: a rocket (Vjuga, Vodopad...) releases its
+    /// torpedo payload inside FixedUpdate, and that payload must be sent to the opponent too.</summary>
     [HarmonyPatch(typeof(Torpedo), "FixedUpdate")]
     static class Patch_Torpedo_FixedUpdate
     {
+        internal static Torpedo OwnParent;
+
         static bool Prefix(Torpedo __instance)
         {
-            if (!Weapons.IsPuppetTorpedo(__instance)) return true;
-            Weapons.DrivePuppetTorpedo(__instance);
-            return false;
+            if (Weapons.IsPuppetTorpedo(__instance)) { Weapons.DrivePuppetTorpedo(__instance); return false; }
+            OwnParent = Duel.InDuel && Weapons.IsOwnTorpedo(__instance) ? __instance : null;
+            return true;
         }
+
+        static void Postfix() { OwnParent = null; }
+
+        static System.Exception Finalizer(System.Exception __exception) { OwnParent = null; return __exception; }
     }
 
     /// <summary>Firer side: our real torpedo touching the opponent's puppet does no damage here;
