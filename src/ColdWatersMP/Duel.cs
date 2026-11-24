@@ -111,6 +111,7 @@ namespace ColdWatersMP
                     OppClass = -1; OppClassName = ""; OppInMission = false; _oppInOldMission = false;
                     TimeSync.Reset();             // never stay paused or compressed for a peer that is gone
                     Match.OnHostLeftMission();    // client: the host's map is stale after a reconnect
+                    if (!InDuel) Match.RestoreLocalDifficulty(); // nothing was played: give back our own settings
                     Match.AppliedSeq = -1; _havePlacement = false; // a restarted host counts its matches from 1 again
                 }
             };
@@ -225,6 +226,7 @@ namespace ColdWatersMP
             _choiceMade = false;
             // Tell the opponent: our sub choice (and, from the host, the map) no longer stand.
             if (Session != null) Session.SendGame(G_INMISSION, w => w.Write(false), true);
+            Match.RestoreLocalDifficulty(); // the host already set the match visibility for the held load
             Log("Held mission start cancelled (back at the main menu)");
         }
 

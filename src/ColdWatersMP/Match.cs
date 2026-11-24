@@ -50,11 +50,22 @@ namespace ColdWatersMP
             if (DevMode.overrideFogDensity) DevMode.overrideFogDensity = false;
         }
 
+        /// <summary>OptionsManager.Instance.settingsData[section][key] by reflection (avoids referencing INIFileParser).</summary>
+        static string DotModSetting(string section, string key)
+        {
+            object data = HarmonyLib.AccessTools.Field(typeof(OptionsManager), "settingsData").GetValue(OptionsManager.Instance);
+            object sec = data.GetType().GetProperty("Item", new System.Type[] { typeof(string) }).GetValue(data, new object[] { section });
+            return (string)sec.GetType().GetProperty("Item", new System.Type[] { typeof(string) }).GetValue(sec, new object[] { key });
+        }
+
         static void RestoreVisibility()
         {
             if (!_haveSavedFog) return;
             LevelLoadManager llm = UIFunctions.globaluifunctions != null ? UIFunctions.globaluifunctions.levelloadmanager : null;
-            if (llm != null) llm.fogDensityAlt = _savedFogAlt;
+            // The player's current DotMod setting (they may have changed it in the options during the match).
+            bool own = _savedFogAlt;
+            try { own = !bool.Parse(DotModSetting("Options", "reducedVisibility")); } catch (System.Exception) { }
+            if (llm != null) llm.fogDensityAlt = own;
             DevMode.overrideFogDensity = _savedDevFog;
             _haveSavedFog = false;
         }
