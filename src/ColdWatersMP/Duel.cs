@@ -81,6 +81,7 @@ namespace ColdWatersMP
                 string s = "Opponent sub: " + opp;
                 if (_heldStations != null) s += " | WAITING for opponent to reach battlestations (F8: start anyway)";
                 if (WaitingForOpponentChoice) s += OppClass < 0 ? " | WAITING for opponent's sub choice (F8: start anyway)" : " | WAITING for the host to start (F8: start anyway)";
+ if (Result.Length > 0) s += " | " + Result;
                 if (InDuel) s += " | duel " + (OppInMission ? "running" : "waiting for opponent to load") + (Puppet != null ? " | states " + _stateCount : "");
                 return s;
             }
@@ -218,6 +219,7 @@ namespace ColdWatersMP
             Puppet = GameDataManager.enemyvesselsonlevel[0];
             MakePuppet(Puppet);
             LocalInMission = true;
+            _ownSunk = false; _oppSunk = false; Result = ""; _startTime = Time.time;
 
             Vessel own = GameDataManager.playervesselsonlevel[0];
             if (Session.IsHost)
@@ -225,7 +227,18 @@ namespace ColdWatersMP
                 // Host stays where the mission put it; the client is placed RangeNm away.
                 Vector3 hp = own.transform.position;
                 float hh = own.transform.eulerAngles.y;
-                float bearing = hh + Random.Range(-60f, 60f);
+                // Try bearings ahead of the host first, then all round, for a spot in deep enough water.
+                float bearing = 0f, bestDepth = -1f, bestBearing = hh;
+                for (int i = 0; i < 16; i++)
+                {
+                    bearing = i < 8 ? hh + Random.Range(-60f, 60f) : Random.Range(0f, 360f);
+                    Vector3 d0 = Quaternion.Euler(0f, bearing, 0f) * Vector3.forward;
+                    float sd = SeabedFeet(hp + d0 * (RangeNm * UnitsPerNm));
+                    if (sd > bestDepth) { bestDepth = sd; bestBearing = bearing; }
+                    if (sd >= 600f) break;
+                }
+                bearing = bestBearing;
+                if (bestDepth < 600f) Log("WARNING: no deep water found " + RangeNm + " nm from the host; best seabed " + bestDepth.ToString("0") + " ft");
                 Vector3 dir = Quaternion.Euler(0f, bearing, 0f) * Vector3.forward;
                 Vector3 cp = hp + dir * (RangeNm * UnitsPerNm);
                 cp.y = hp.y;
@@ -265,10 +278,28 @@ namespace ColdWatersMP
             Log("Duel: placement applied");
         }
 
+        /// <summary>Seabed depth in feet at a point (the game's own terrain probe); very large if there is no terrain.</summary>
+        static float SeabedFeet(Vector3 p)
+        {
+            try { return UIFunctions.globaluifunctions.levelloadmanager.GetTerrainHeightAtPosition(p.x, p.z) * GameDataManager.unitsToFeet; }
+            catch (System.Exception) { return 100000f; }
+        }
+
         static void Teleport(Vessel v, Vector3 pos, float heading)
         {
             if (v == null) return; // Unity-destroyed vessel from an earlier mission
             Vector3 p = pos; p.y = v.transform.position.y; // keep own spawn depth
+            if (v.playercontrolled)
+            {
+                // Don't end up below the seabed of the host's map: stay at least 100 ft above it.
+                float seabed = SeabedFeet(p), depth = (1000f - p.y) * GameDataManager.unitsToFeet;
+                if (seabed < 50000f && depth > seabed - 100f)
+                {
+                    float newDepth = Mathf.Max(60f, seabed * 0.5f);
+                    p.y = 1000f - newDepth / GameDataManager.unitsToFeet;
+                    Log("Placement: seabed " + seabed.ToString("0") + " ft, moved our sub up to " + newDepth.ToString("0") + " ft");
+                }
+            }
             v.transform.position = p;
             Vector3 e = v.transform.eulerAngles; e.y = heading;
             v.transform.eulerAngles = e;
@@ -318,6 +349,32 @@ namespace ColdWatersMP
             finally { _releasingStations = false; }
         }
 
+        // ---------- match result ----------
+        static bool _ownSunk, _oppSunk;
+        static float _startTime;
+        public static string Result = "";
+
+        public static void OnOwnSinking() { if (_ownSunk || !InDuel) return; _ownSunk = true; AnnounceResult(); }
+        public static void OnOppSinking() { if (_oppSunk || !InDuel) return; _oppSunk = true; AnnounceResult(); }
+
+        static void AnnounceResult()
+        {
+            string what;
+            if (_ownSunk && _oppSunk) what = "DRAW: both subs lost";
+            else if (_oppSunk) what = "VICTORY: the opponent's " + OppClassName + " is sinking";
+            else what = "DEFEAT: your sub is sinking";
+            float mins = (Time.time - _startTime) / 60f;
+            Result = what + " (" + mins.ToString("0.0") + " min; torpedoes fired " + Weapons.OwnFired + " vs " + Weapons.OppFired
+                + ", hits " + Weapons.OwnHits + " vs " + Weapons.OppHits + ")";
+            Log("RESULT " + Result);
+            try
+            {
+                PlayerFunctions pf = UIFunctions.globaluifunctions.playerfunctions;
+                pf.PlayerMessage(what, pf.messageLogColors["Helm"], "CWMP");
+            }
+            catch (System.Exception) { }
+        }
+
         /// <summary>Our own vessel, or null if none (or it was destroyed with the previous scene).</summary>
         static Vessel OwnVessel()
         {
@@ -342,6 +399,8 @@ namespace ColdWatersMP
             InDuel = false; Puppet = null; LocalInMission = false;
             _choiceMade = false; _heldLoad = null; // a new mission needs a new choice
             _ownAtStations = false; _oppAtStations = false; _heldStations = null; OppMissionId = -1;
+            TimeSync.Reset();
+            _ownSunk = false; _oppSunk = false; // keep Result on the overlay until the next mission
             EnvSync.HostNewSeed(); // host: new ocean for the next mission (the client keeps the latest seed it got)
             Weapons.Reset();
         }
@@ -434,6 +493,7 @@ namespace ColdWatersMP
             if (Weapons.OnMessage(type, r)) return;
             if (EnvSync.OnMessage(type, r)) return;
             if (Match.OnMessage(type, r)) return;
+            if (TimeSync.OnMessage(type, r)) return;
             switch (type)
             {
                 case G_SUBCHOICE:
@@ -466,6 +526,7 @@ namespace ColdWatersMP
                     OppInMission = r.ReadBoolean();
                     Log("Opponent " + (OppInMission ? "is in the mission" : "left the mission"));
                     if (!OppInMission && !Session.IsHost) Match.OnHostLeftMission();
+                    if (!OppInMission) TimeSync.Reset();
                     if (!OppInMission) { OppClass = -1; OppClassName = ""; _oppAtStations = false; OppMissionId = -1; } // they will choose again
                     break;
                 case G_STATE:
@@ -545,18 +606,6 @@ namespace ColdWatersMP
         }
     }
 
-    /// <summary>Time compression is off in duels (fixedDeltaTime changes with compression).</summary>
-    [HarmonyPatch(typeof(PlayerFunctions), "SetTimeCompression")]
-    static class Patch_SetTimeCompression
-    {
-        static void Postfix()
-        {
-            if (!Duel.InDuel) return;
-            Time.timeScale = 1f;
-            Time.fixedDeltaTime = 0.02f;
-        }
-    }
-
     /// <summary>Fairness: give the puppet the player-only quieting the real player gets.</summary>
     [HarmonyPatch(typeof(SensorManager), "GetVesselNoiseLevel")]
     static class Patch_NoiseLevel
@@ -592,10 +641,7 @@ namespace ColdWatersMP
     {
         static void Postfix()
         {
-            if (!Duel.InDuel || Time.timeScale != 0f) return;
-            Time.timeScale = 1f;
-            Time.fixedDeltaTime = 0.02f;
-            Duel.Log("Pause blocked in multiplayer: the game keeps running");
+            TimeSync.OnExitMenuOpened();
         }
     }
 

@@ -20,6 +20,12 @@ namespace ColdWatersMP
         public static int Layer = 0;        // 0 = random, else strengthTypes index + 1 (strength = idx / 5)
         public static int Duct = 0;         // same
         public static int TimeChoice = 0;   // 0 random, 1 dawn, 2 day, 3 dusk, 4 night
+        public static bool HostPauseBoth = false;  // host setting: Esc menu pauses both games (else pause is blocked)
+        public static bool HostAllowTC = true;     // host setting: time compression by mutual agreement
+        static bool _clientPauseBoth, _clientAllowTC = true;
+        /// <summary>The setting in force: the host's own, or what the host sent us.</summary>
+        public static bool PauseBoth { get { return Duel.Session != null && !Duel.Session.IsHost ? _clientPauseBoth : HostPauseBoth; } }
+        public static bool TimeCompressionAllowed { get { return Duel.Session != null && !Duel.Session.IsHost ? _clientAllowTC : HostAllowTC; } }
         public static readonly string[] TimeNames = { "Random", "Dawn", "Day", "Dusk", "Night" };
         static readonly int[] TimeHours = { -1, 7, 12, 17, 1 };
 
@@ -99,7 +105,8 @@ namespace ColdWatersMP
             ApplyConditionSettings(d);
             Snapshot s = Take(d);
             int seq = ++_sentSeq;
-            Duel.Session.SendGame(G_MATCH, w => { w.Write(seq); Write(w, s); }, true);
+            bool pause = HostPauseBoth, tc = HostAllowTC;
+            Duel.Session.SendGame(G_MATCH, w => { w.Write(seq); Write(w, s); w.Write(pause); w.Write(tc); }, true);
             LastSummary = Describe(s);
             Duel.Log("Match sent: " + LastSummary);
         }
@@ -158,7 +165,9 @@ namespace ColdWatersMP
             if (type != G_MATCH) return false;
             int seq = r.ReadInt32();
             Snapshot s = Read(r);
+            bool pause = r.ReadBoolean(), tc = r.ReadBoolean();
             if (Duel.Session.IsHost) return true; // only the host decides
+            _clientPauseBoth = pause; _clientAllowTC = tc;
             _host = s; _hostSeq = seq; _haveHostMatch = true;
             HostMapName = s.MissionName;
             Duel.Log("Host picked " + Describe(s));

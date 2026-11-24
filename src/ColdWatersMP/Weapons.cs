@@ -38,7 +38,11 @@ namespace ColdWatersMP
         {
             _own.Clear(); _ownIds.Clear(); _incoming.Clear(); _puppetTorps.Clear(); _onNoisemaker.Clear();
             _lastSentDamage = -1f; _lastSentSinking = false;
+            OwnFired = 0; OppFired = 0; OwnHits = 0; OppHits = 0;
         }
+
+        // Match statistics (for the result line)
+        public static int OwnFired, OppFired, OwnHits, OppHits;
 
         public static bool IsPuppetTorpedo(Torpedo t) { return t != null && _puppetTorps.Contains(t); }
         public static bool IsOwnTorpedo(Torpedo t) { return t != null && _ownIds.ContainsKey(t); }
@@ -52,6 +56,7 @@ namespace ColdWatersMP
             if (!Active || t == null) return;
             int id = _nextId++;
             _own[id] = t; _ownIds[t] = id;
+            if (!payload) OwnFired++;
             int weaponId = t.databaseweapondata.weaponID;
             Vector3 pos = t.transform.position; Vector3 eul = t.transform.eulerAngles;
             int carrierId = -1;
@@ -169,6 +174,7 @@ namespace ColdWatersMP
                 int idCopy = id;
                 S.SendGame(G_TORP_HIT, w => w.Write(idCopy), true);
                 Duel.Log("Opponent torpedo #" + id + " hit us");
+                OppHits++;
                 Kill(id, true);
                 return;
             }
@@ -290,6 +296,7 @@ namespace ColdWatersMP
             float frac = own.damagesystem.shipTotalDamagePoints > 0 ? own.damagesystem.shipCurrentDamagePoints / own.damagesystem.shipTotalDamagePoints : 0f;
             bool sinking = own.isSinking;
             if (Mathf.Abs(frac - _lastSentDamage) < 0.005f && sinking == _lastSentSinking) return;
+            if (sinking && !_lastSentSinking) Duel.OnOwnSinking();
             _lastSentDamage = frac; _lastSentSinking = sinking;
             S.SendGame(G_DAMAGE, w => { w.Write(frac); w.Write(sinking); }, true);
             Duel.Log("Our damage " + (frac * 100f).ToString("F0") + "%" + (sinking ? ", SINKING" : ""));
@@ -301,6 +308,7 @@ namespace ColdWatersMP
             if (p == null) return;
             p.damagesystem.shipCurrentDamagePoints = frac * p.damagesystem.shipTotalDamagePoints;
             Duel.Log("Opponent damage " + (frac * 100f).ToString("F0") + "%" + (sinking ? ", SINKING" : ""));
+            if (sinking) Duel.OnOppSinking();
             if (sinking && !p.isSinking)
             {
                 Compartment c = p.GetComponentInChildren<Compartment>();
@@ -327,6 +335,7 @@ namespace ColdWatersMP
                 case G_TORP_SPAWN:
                 {
                     int id = r.ReadInt32(); int wid = r.ReadInt32(); Vector3 p = ReadV3(r); Vector3 e = ReadV3(r); bool payload = r.ReadBoolean(); int carrierId = r.ReadInt32();
+                    if (!payload) OppFired++;
                     Incoming carrier;
                     if (carrierId > 0 && _incoming.TryGetValue(carrierId, out carrier))
                     {
@@ -364,6 +373,7 @@ namespace ColdWatersMP
                     int id = r.ReadInt32();
                     Torpedo t;
                     Duel.Log("Our torpedo #" + id + " HIT the opponent");
+                    OwnHits++;
                     if (_own.TryGetValue(id, out t) && t != null) t.destroyMe = true; // explode here too
                     _own.Remove(id);
                     return true;
