@@ -3,6 +3,7 @@
 // loading, it applies its condition settings to its LevelLoadData and sends the map and environment fields to
 // the client. The client holds its own load until they arrive and then overwrites its own mission's fields, so
 // the client's mission pick no longer matters. Weather rolls that stay random are kept equal by EnvSync's seed.
+using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
 
@@ -106,7 +107,13 @@ namespace ColdWatersMP
             Snapshot s = Take(d);
             int seq = ++_sentSeq;
             bool pause = HostPauseBoth, tc = HostAllowTC;
-            Duel.Session.SendGame(G_MATCH, w => { w.Write(seq); Write(w, s); w.Write(pause); w.Write(tc); }, true);
+            Dictionary<string, float> diff = OptionsManager.difficultySettings != null ? new Dictionary<string, float>(OptionsManager.difficultySettings) : new Dictionary<string, float>();
+            Duel.Session.SendGame(G_MATCH, w =>
+            {
+                w.Write(seq); Write(w, s); w.Write(pause); w.Write(tc);
+                w.Write(diff.Count);
+                foreach (KeyValuePair<string, float> kv in diff) { w.Write(kv.Key); w.Write(kv.Value); }
+            }, true);
             LastSummary = Describe(s);
             Duel.Log("Match sent: " + LastSummary);
         }
@@ -116,8 +123,37 @@ namespace ColdWatersMP
         {
             if (!_haveHostMatch || d == null) return;
             Apply(_host, d);
+            ApplyHostDifficulty();
             LastSummary = Describe(_host);
             Duel.Log("Match applied from host: " + LastSummary);
+        }
+
+        // Difficulty: both games use the host's difficulty values for the match (hull points, TMA rate, noise,
+        // reload times ...), so neither side has an easier game. The client's own values come back afterwards.
+        static Dictionary<string, float> _hostDifficulty, _savedDifficulty;
+
+        static void ApplyHostDifficulty()
+        {
+            Dictionary<string, float> live = OptionsManager.difficultySettings;
+            if (_hostDifficulty == null || _hostDifficulty.Count == 0 || live == null) return;
+            if (_savedDifficulty == null) _savedDifficulty = new Dictionary<string, float>(live);
+            int changed = 0;
+            foreach (KeyValuePair<string, float> kv in _hostDifficulty)
+            {
+                float old;
+                if (!live.TryGetValue(kv.Key, out old) || old != kv.Value) changed++;
+                live[kv.Key] = kv.Value;
+            }
+            Duel.Log("Difficulty: using the host's values (" + changed + " differed from yours)");
+        }
+
+        /// <summary>Mission over: give the client its own difficulty back.</summary>
+        public static void RestoreLocalDifficulty()
+        {
+            if (_savedDifficulty == null || OptionsManager.difficultySettings == null) return;
+            foreach (KeyValuePair<string, float> kv in _savedDifficulty) OptionsManager.difficultySettings[kv.Key] = kv.Value;
+            _savedDifficulty = null;
+            Duel.Log("Difficulty: your own values restored");
         }
 
         /// <summary>The host left its mission: whatever it sent is for the old mission.</summary>
@@ -166,7 +202,11 @@ namespace ColdWatersMP
             int seq = r.ReadInt32();
             Snapshot s = Read(r);
             bool pause = r.ReadBoolean(), tc = r.ReadBoolean();
+            int n = r.ReadInt32();
+            Dictionary<string, float> diff = new Dictionary<string, float>();
+            for (int i = 0; i < n; i++) { string k = r.ReadString(); diff[k] = r.ReadSingle(); }
             if (Duel.Session.IsHost) return true; // only the host decides
+            _hostDifficulty = diff;
             _clientPauseBoth = pause; _clientAllowTC = tc;
             _host = s; _hostSeq = seq; _haveHostMatch = true;
             HostMapName = s.MissionName;

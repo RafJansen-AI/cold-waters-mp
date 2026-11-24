@@ -400,6 +400,7 @@ namespace ColdWatersMP
             _choiceMade = false; _heldLoad = null; // a new mission needs a new choice
             _ownAtStations = false; _oppAtStations = false; _heldStations = null; OppMissionId = -1;
             TimeSync.Reset();
+            Match.RestoreLocalDifficulty();
             _ownSunk = false; _oppSunk = false; // keep Result on the overlay until the next mission
             EnvSync.HostNewSeed(); // host: new ocean for the next mission (the client keeps the latest seed it got)
             Weapons.Reset();
