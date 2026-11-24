@@ -492,4 +492,16 @@ namespace ColdWatersMP
             Duel.Log("Pause blocked in multiplayer: the game keeps running");
         }
     }
+
+    /// <summary>The in-game help also pauses (and restores lastTimeScale on close): keep both at 1 in a duel.</summary>
+    [HarmonyPatch(typeof(HelpManager), "OnEnable")]
+    static class Patch_HelpOnEnable
+    {
+        static void Postfix(HelpManager __instance)
+        {
+            if (!Duel.InDuel) return;
+            if (__instance.lastTimeScale == 0f) __instance.lastTimeScale = 1f;
+            if (Time.timeScale == 0f) { Time.timeScale = 1f; Time.fixedDeltaTime = 0.02f; Duel.Log("Help opened: pause blocked in multiplayer"); }
+        }
+    }
 }
