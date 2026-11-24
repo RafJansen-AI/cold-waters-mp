@@ -1,0 +1,169 @@
+// Cold Waters MP - match settings: the host picks the map and the conditions for both players. C# 5 / .NET 3.5.
+// The map is whatever single mission the host starts (the duel strips its ships anyway). When the host starts
+// loading, it applies its condition settings to its LevelLoadData and sends the map and environment fields to
+// the client. The client holds its own load until they arrive and then overwrites its own mission's fields, so
+// the client's mission pick no longer matters. Weather rolls that stay random are kept equal by EnvSync's seed.
+using System.IO;
+using UnityEngine;
+
+namespace ColdWatersMP
+{
+    public static class Match
+    {
+        public const byte G_MATCH = 15;
+
+        // ---- host settings (edited in the F6 window, defaults from the config) ----
+        public enum CondMode { Mission = 0, Random = 1, Custom = 2 }
+        public static CondMode Conditions = CondMode.Mission;
+        public static int Weather = 0;      // index into sensormanager.weather
+        public static int SeaState = 2;     // index into sensormanager.seaStates
+        public static int Layer = 0;        // 0 = random, else strengthTypes index + 1 (strength = idx / 5)
+        public static int Duct = 0;         // same
+        public static int TimeChoice = 0;   // 0 random, 1 dawn, 2 day, 3 dusk, 4 night
+        public static readonly string[] TimeNames = { "Random", "Dawn", "Day", "Dusk", "Night" };
+        static readonly int[] TimeHours = { -1, 7, 12, 17, 1 };
+
+        // ---- what the client received ----
+        static bool _haveHostMatch;
+        static int _hostSeq, _sentSeq;
+        public static string HostMapName = "";
+        public static string LastSummary = "";
+        static Snapshot _host;
+
+        public static bool HaveHostMatch { get { return _haveHostMatch; } }
+
+        class Snapshot
+        {
+            public string MissionName = "";
+            public bool UseTerrain; public Vector2 MapPosition; public string MapElevation = "", MapNavigation = "", WorldObjects = "", MapFromCampaign = "";
+            public string Date = "", Month = "", Season = "", Hemisphere = ""; public bool ForceIce;
+            public bool PresetEnv; public int TimeOfDay; public string TimeString = ""; public int Environment; public int SeaState;
+            public float Duct, Layer; public string CombatLocation = ""; public Vector2 MissionPosition;
+        }
+
+        static Snapshot Take(LevelLoadData d)
+        {
+            Snapshot s = new Snapshot();
+            s.MissionName = string.IsNullOrEmpty(d.missionName) ? "mission " + UIFunctions.globaluifunctions.missionmanager.currentMissionID : d.missionName;
+            s.UseTerrain = d.useTerrain; s.MapPosition = d.mapPosition;
+            s.MapElevation = d.mapElevationData ?? ""; s.MapNavigation = d.mapNavigationData ?? "";
+            s.WorldObjects = d.worldObjectsData ?? ""; s.MapFromCampaign = d.mapFromCampaign ?? "";
+            s.Date = d.date ?? ""; s.Month = d.month ?? ""; s.Season = d.season ?? ""; s.Hemisphere = d.hemisphere ?? ""; s.ForceIce = d.forceIce;
+            s.PresetEnv = d.usePresetEnvironment; s.TimeOfDay = d.timeofday; s.TimeString = d.timeOfDayString ?? "";
+            s.Environment = d.environment; s.SeaState = d.seaState; s.Duct = d.ductStrength; s.Layer = d.layerStrength;
+            s.CombatLocation = d.combatLocation ?? ""; s.MissionPosition = d.missionPosition;
+            return s;
+        }
+
+        static void Apply(Snapshot s, LevelLoadData d)
+        {
+            d.useTerrain = s.UseTerrain; d.mapPosition = s.MapPosition;
+            d.mapElevationData = s.MapElevation; d.mapNavigationData = s.MapNavigation;
+            d.worldObjectsData = s.WorldObjects; d.mapFromCampaign = s.MapFromCampaign;
+            d.date = s.Date; d.month = s.Month; d.season = s.Season; d.hemisphere = s.Hemisphere; d.forceIce = s.ForceIce;
+            d.usePresetEnvironment = s.PresetEnv; d.timeofday = s.TimeOfDay; d.timeOfDayString = s.TimeString;
+            d.environment = s.Environment; d.seaState = s.SeaState; d.ductStrength = s.Duct; d.layerStrength = s.Layer;
+            d.combatLocation = s.CombatLocation; d.missionPosition = s.MissionPosition;
+            // A duel has no minefields, sonobuoys or preset player position (the host places the client).
+            d.proximityMineLocations = new Vector2[0];
+            d.sonobuoyLocations = new Vector3[0];
+            d.usePresetPositions = false;
+        }
+
+        static void Write(BinaryWriter w, Snapshot s)
+        {
+            w.Write(s.MissionName);
+            w.Write(s.UseTerrain); w.Write(s.MapPosition.x); w.Write(s.MapPosition.y);
+            w.Write(s.MapElevation); w.Write(s.MapNavigation); w.Write(s.WorldObjects); w.Write(s.MapFromCampaign);
+            w.Write(s.Date); w.Write(s.Month); w.Write(s.Season); w.Write(s.Hemisphere); w.Write(s.ForceIce);
+            w.Write(s.PresetEnv); w.Write(s.TimeOfDay); w.Write(s.TimeString); w.Write(s.Environment); w.Write(s.SeaState);
+            w.Write(s.Duct); w.Write(s.Layer); w.Write(s.CombatLocation); w.Write(s.MissionPosition.x); w.Write(s.MissionPosition.y);
+        }
+
+        static Snapshot Read(BinaryReader r)
+        {
+            Snapshot s = new Snapshot();
+            s.MissionName = r.ReadString();
+            s.UseTerrain = r.ReadBoolean(); s.MapPosition = new Vector2(r.ReadSingle(), r.ReadSingle());
+            s.MapElevation = r.ReadString(); s.MapNavigation = r.ReadString(); s.WorldObjects = r.ReadString(); s.MapFromCampaign = r.ReadString();
+            s.Date = r.ReadString(); s.Month = r.ReadString(); s.Season = r.ReadString(); s.Hemisphere = r.ReadString(); s.ForceIce = r.ReadBoolean();
+            s.PresetEnv = r.ReadBoolean(); s.TimeOfDay = r.ReadInt32(); s.TimeString = r.ReadString(); s.Environment = r.ReadInt32(); s.SeaState = r.ReadInt32();
+            s.Duct = r.ReadSingle(); s.Layer = r.ReadSingle(); s.CombatLocation = r.ReadString(); s.MissionPosition = new Vector2(r.ReadSingle(), r.ReadSingle());
+            return s;
+        }
+
+        /// <summary>Host, in the LoadLevel prefix: apply our condition settings and send map + conditions.</summary>
+        public static void HostPrepare(LevelLoadData d)
+        {
+            if (d == null) return;
+            ApplyConditionSettings(d);
+            Snapshot s = Take(d);
+            int seq = ++_sentSeq;
+            Duel.Session.SendGame(G_MATCH, w => { w.Write(seq); Write(w, s); }, true);
+            LastSummary = Describe(s);
+            Duel.Log("Match sent: " + LastSummary);
+        }
+
+        /// <summary>Client, in the LoadLevel prefix: use the host's map and conditions.</summary>
+        public static void ClientApply(LevelLoadData d)
+        {
+            if (!_haveHostMatch || d == null) return;
+            Apply(_host, d);
+            LastSummary = Describe(_host);
+            Duel.Log("Match applied from host: " + LastSummary);
+        }
+
+        /// <summary>The host left its mission: whatever it sent is for the old mission.</summary>
+        public static void OnHostLeftMission() { _haveHostMatch = false; }
+
+        static void ApplyConditionSettings(LevelLoadData d)
+        {
+            if (Conditions == CondMode.Mission) return;
+            if (Conditions == CondMode.Random)
+            {
+                d.usePresetEnvironment = false; // the game rolls weather, sea and time; EnvSync keeps both rolls equal
+                return;
+            }
+            SensorManager sm = UIFunctions.globaluifunctions.playerfunctions.sensormanager;
+            d.usePresetEnvironment = true;
+            d.environment = Mathf.Clamp(Weather, 0, sm.weather.Length - 1);
+            d.seaState = Mathf.Clamp(SeaState, 0, sm.seaStates.Length - 1);
+            d.layerStrength = Layer == 0 ? -1f : (Layer - 1) / 5f;
+            d.ductStrength = Duct == 0 ? -1f : (Duct - 1) / 5f;
+            int hour = TimeHours[Mathf.Clamp(TimeChoice, 0, TimeHours.Length - 1)];
+            if (hour < 0) hour = new System.Random().Next(0, 24);
+            d.timeOfDayString = (hour * 100).ToString("0000");
+            d.timeofday = UIFunctions.globaluifunctions.campaignmanager.GetCampaignTimeOfDay(hour);
+        }
+
+        static string Describe(Snapshot s)
+        {
+            string env;
+            if (!s.PresetEnv) env = "random weather (same seed both sides)";
+            else
+            {
+                SensorManager sm = UIFunctions.globaluifunctions.playerfunctions.sensormanager;
+                env = Name(sm.weather, s.Environment) + ", sea " + Name(sm.seaStates, s.SeaState)
+                    + ", layer " + (s.Layer < 0f ? "random" : s.Layer.ToString("0.0")) + ", duct " + (s.Duct < 0f ? "random" : s.Duct.ToString("0.0"))
+                    + ", " + s.TimeString;
+            }
+            return "map '" + s.MissionName + "' at " + s.MapPosition.x.ToString("0") + "," + s.MapPosition.y.ToString("0") + (s.UseTerrain ? " (terrain)" : "")
+                + ", " + s.Date + ", " + env;
+        }
+
+        public static string Name(string[] a, int i) { return a != null && i >= 0 && i < a.Length ? a[i] : i.ToString(); }
+
+        public static bool OnMessage(byte type, BinaryReader r)
+        {
+            if (type != G_MATCH) return false;
+            int seq = r.ReadInt32();
+            Snapshot s = Read(r);
+            if (Duel.Session.IsHost) return true; // only the host decides
+            _host = s; _hostSeq = seq; _haveHostMatch = true;
+            HostMapName = s.MissionName;
+            Duel.Log("Host picked " + Describe(s));
+            Duel.OnHostMatchArrived();
+            return true;
+        }
+    }
+}

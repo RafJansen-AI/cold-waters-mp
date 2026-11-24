@@ -80,9 +80,7 @@ namespace ColdWatersMP
                 string opp = OppClass >= 0 ? OppClassName : "not chosen yet";
                 string s = "Opponent sub: " + opp;
                 if (_heldStations != null) s += " | WAITING for opponent to reach battlestations (F8: start anyway)";
-                if (OppMissionId >= 0 && UIFunctions.globaluifunctions != null && OppMissionId != UIFunctions.globaluifunctions.missionmanager.currentMissionID)
-                    s += " | WARNING: different mission than opponent";
-                if (WaitingForOpponentChoice) s += " | WAITING for opponent's sub choice (F8: start anyway)";
+                if (WaitingForOpponentChoice) s += OppClass < 0 ? " | WAITING for opponent's sub choice (F8: start anyway)" : " | WAITING for the host to start (F8: start anyway)";
                 if (InDuel) s += " | duel " + (OppInMission ? "running" : "waiting for opponent to load") + (Puppet != null ? " | states " + _stateCount : "");
                 return s;
             }
@@ -134,6 +132,12 @@ namespace ColdWatersMP
             catch (System.Exception) { return "class " + cls; }
         }
 
+        /// <summary>Client: the host's map and conditions arrived; start a held load if the sub choice is in too.</summary>
+        public static void OnHostMatchArrived()
+        {
+            if (_heldLoad != null && OppClass >= 0) ReleaseHeldLoad("host started");
+        }
+
         // ---------- level load ----------
 
         /// <summary>LoadLevel prefix: turn the chosen single mission into a 1v1 duel.</summary>
@@ -153,6 +157,7 @@ namespace ColdWatersMP
             Weapons.Reset();
             if (!Active || !GameDataManager.missionMode) return true;
             if (!_choiceMade) OnSubAccepted(); // fallback: make sure the opponent learns our sub
+            if (Session.IsHost && !_releasingLoad) Match.HostPrepare(llm.levelloaddata); // our map and conditions, for both of us (once)
             int oppCls = OppClass;
             if (oppCls < 0 && !_releasingLoad)
             {
@@ -160,7 +165,18 @@ namespace ColdWatersMP
                 Log("Waiting for the opponent to choose a sub; the mission starts when it arrives (F8: start anyway)");
                 return false;
             }
+            if (!Session.IsHost && !Match.HaveHostMatch && !_releasingLoad)
+            {
+                _heldLoad = llm;
+                Log("Waiting for the host to start; you get the host's map and conditions (F8: start anyway with yours)");
+                return false;
+            }
             LevelLoadData d = llm.levelloaddata;
+            if (!Session.IsHost)
+            {
+                if (Match.HaveHostMatch) Match.ClientApply(d);
+                else Log("WARNING: no map from the host; using your own mission (map and weather may differ)");
+            }
             if (oppCls < 0)
             {
                 oppCls = UIFunctions.globaluifunctions.playerfunctions.playerVesselClass;
@@ -417,17 +433,18 @@ namespace ColdWatersMP
         {
             if (Weapons.OnMessage(type, r)) return;
             if (EnvSync.OnMessage(type, r)) return;
+            if (Match.OnMessage(type, r)) return;
             switch (type)
             {
                 case G_SUBCHOICE:
                     OppClass = r.ReadInt32(); OppClassName = r.ReadString(); OppRpgSelfNoiseBonus = r.ReadSingle();
                     OppMissionId = r.ReadInt32();
                     int ownMission = UIFunctions.globaluifunctions.missionmanager.currentMissionID;
-                    if (OppMissionId != ownMission) Log("WARNING: opponent picked mission " + OppMissionId + ", you picked " + ownMission + ". Pick the same mission, or map and weather will differ.");
+                    if (OppMissionId != ownMission) Log("Note: opponent picked mission " + OppMissionId + ", you picked " + ownMission + "; the host's map and conditions are used.");
                     string mine = ClassName(OppClass);
                     if (mine != OppClassName) Log("WARNING: opponent's sub " + OppClassName + " is " + mine + " here (data mismatch?)");
                     Log("Opponent chose " + OppClassName);
-                    if (_heldLoad != null) ReleaseHeldLoad("opponent chose " + OppClassName);
+                    if (_heldLoad != null && (Session.IsHost || Match.HaveHostMatch)) ReleaseHeldLoad("opponent chose " + OppClassName);
                     if (InDuel && Puppet != null && Puppet.databaseshipdata.shipPrefabName != OppClassName)
                         Log("WARNING: puppet is a " + Puppet.databaseshipdata.shipPrefabName + " but opponent chose " + OppClassName + ". Pick both subs before starting either mission.");
                     break;
@@ -448,6 +465,7 @@ namespace ColdWatersMP
                 case G_INMISSION:
                     OppInMission = r.ReadBoolean();
                     Log("Opponent " + (OppInMission ? "is in the mission" : "left the mission"));
+                    if (!OppInMission && !Session.IsHost) Match.OnHostLeftMission();
                     if (!OppInMission) { OppClass = -1; OppClassName = ""; _oppAtStations = false; OppMissionId = -1; } // they will choose again
                     break;
                 case G_STATE:
