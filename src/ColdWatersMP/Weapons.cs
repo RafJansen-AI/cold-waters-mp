@@ -17,6 +17,7 @@ namespace ColdWatersMP
         {
             public Torpedo T;
             public Vector3 Pos0, Pos1; public Vector3 Euler1; public float T0, T1, Local1; public int Count;
+            public float SpawnLocal; public float EndAt = -1f; public bool Homing; public bool Armed;
         }
 
         static int _nextId = 1;
@@ -61,7 +62,8 @@ namespace ColdWatersMP
                 int id = kv.Key;
                 if (t == null) { if (ended == null) ended = new List<int>(); ended.Add(id); continue; }
                 Vector3 pos = t.transform.position; Vector3 eul = t.transform.eulerAngles; float time = Time.time;
-                S.SendGame(G_TORP_STATE, w => { w.Write(id); w.Write(time); WriteV3(w, pos); WriteV3(w, eul); }, false);
+                bool homing = Duel.Puppet != null && t.targetTransform == Duel.Puppet.transform;
+                S.SendGame(G_TORP_STATE, w => { w.Write(id); w.Write(time); WriteV3(w, pos); WriteV3(w, eul); w.Write(homing); }, false);
             }
             if (ended == null) return;
             foreach (int id in ended)
@@ -94,7 +96,7 @@ namespace ColdWatersMP
             t.InitialiseTorpedo();
             _puppetTorps.Add(t);
             UIFunctions.globaluifunctions.playerfunctions.sensormanager.AddTorpedoToArray(t);
-            Incoming inc = new Incoming { T = t, Pos0 = pos, Pos1 = pos, Euler1 = eul, T0 = 0, T1 = 0, Local1 = Time.time, Count = 0 };
+            Incoming inc = new Incoming { T = t, Pos0 = pos, Pos1 = pos, Euler1 = eul, T0 = 0, T1 = 0, Local1 = Time.time, Count = 0, SpawnLocal = Time.time };
             _incoming[id] = inc;
             Duel.Log("Opponent fired torpedo #" + id + " (" + wd.weaponName + ")");
         }
@@ -115,6 +117,19 @@ namespace ColdWatersMP
                 Kill(id, true);
                 return;
             }
+            if (inc.EndAt > 0f && Time.time > inc.EndAt)
+            {
+                Duel.Log("Opponent torpedo #" + id + " ended (miss)");
+                Kill(id, false);
+                return;
+            }
+            // The game arms a torpedo's hit collider in Torpedo.FixedUpdate, which puppets skip.
+            // Player torpedoes (navy 0 on the firer's side) arm after 5 s; do the same here.
+            if (!inc.Armed && Time.time - inc.SpawnLocal > 5f) Arm(t, inc);
+            // "Torpedo in the water" callout: the game gives it when a torpedo targets the player's sub.
+            Vessel own = GameDataManager.playervesselsonlevel[0];
+            if (own != null) t.targetTransform = inc.Homing ? own.transform : null;
+
             Vector3 target = inc.Pos1;
             float dt = inc.T1 - inc.T0;
             if (inc.Count > 1 && dt > 0.001f && dt < 2f)
@@ -124,6 +139,16 @@ namespace ColdWatersMP
             if (err.magnitude > 0.5f) tr.position = target;
             else tr.position += err * Mathf.Min(1f, Time.deltaTime * 8f);
             tr.rotation = Quaternion.Slerp(tr.rotation, Quaternion.Euler(inc.Euler1), Mathf.Min(1f, Time.deltaTime * 8f));
+        }
+
+        static void Arm(Torpedo t, Incoming inc)
+        {
+            inc.Armed = true;
+            if (t.boxcollider != null) ((Collider)t.boxcollider).enabled = true;
+            SphereCollider sc = t.gameObject.GetComponent<SphereCollider>();
+            if (sc == null) sc = t.gameObject.AddComponent<SphereCollider>();
+            sc.enabled = true;
+            sc.radius = 0.05f;
         }
 
         static void Kill(int id, bool effects)
@@ -187,18 +212,23 @@ namespace ColdWatersMP
                 }
                 case G_TORP_STATE:
                 {
-                    int id = r.ReadInt32(); float time = r.ReadSingle(); Vector3 p = ReadV3(r); Vector3 e = ReadV3(r);
+                    int id = r.ReadInt32(); float time = r.ReadSingle(); Vector3 p = ReadV3(r); Vector3 e = ReadV3(r); bool homing = r.ReadBoolean();
                     Incoming inc;
-                    if (_incoming.TryGetValue(id, out inc) && time > inc.T1)
+                    if (_incoming.TryGetValue(id, out inc) && time > inc.T1 && inc.EndAt < 0f)
                     {
                         inc.Pos0 = inc.Pos1; inc.T0 = inc.T1; inc.Pos1 = p; inc.T1 = time; inc.Euler1 = e; inc.Local1 = Time.time; inc.Count++;
+                        if (homing && !inc.Homing) Duel.Log("Opponent torpedo #" + id + " is homing on us");
+                        inc.Homing = homing;
                     }
                     return true;
                 }
                 case G_TORP_END:
                 {
                     int id = r.ReadInt32();
-                    if (_incoming.ContainsKey(id)) { Duel.Log("Opponent torpedo #" + id + " ended (miss)"); Kill(id, false); }
+                    // Grace period: the firer's torpedo may end (proximity, impact) a moment before ours
+                    // touches the hull here. Keep it running briefly so our collision can still count.
+                    Incoming inc;
+                    if (_incoming.TryGetValue(id, out inc) && inc.EndAt < 0f) inc.EndAt = Time.time + 1.0f;
                     return true;
                 }
                 case G_TORP_HIT:

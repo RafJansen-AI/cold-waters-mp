@@ -11,7 +11,7 @@ namespace ColdWatersMP
     [BepInPlugin("cwmp", "Cold Waters MP", PluginVersion)]
     public class CwmpPlugin : BaseUnityPlugin
     {
-        public const string PluginVersion = "0.0.5";
+        public const string PluginVersion = "0.0.6";
 
         ConfigEntry<string> _role, _hostAddress, _playerName, _fakeHash;
         ConfigEntry<int> _port;
@@ -45,7 +45,7 @@ namespace ColdWatersMP
             new Harmony("cwmp").PatchAll(typeof(CwmpPlugin).Assembly);
             Log("Harmony patches applied");
             if (_autoStart.Value) StartSession();
-            Log("Cold Waters MP " + PluginVersion + " loaded. F9: toggle overlay, F10: (re)start session, F11: send test chat");
+            Log("Cold Waters MP " + PluginVersion + " loaded. F8: start held mission, F9: toggle overlay, F10: (re)start session, F11: send test chat");
         }
 
         void Start()
@@ -67,6 +67,7 @@ namespace ColdWatersMP
         {
             if (Input.GetKeyDown(KeyCode.F9)) _showOverlay = !_showOverlay;
             if (Input.GetKeyDown(KeyCode.F10)) { _session.Leave(); StartSession(); }
+            if (Input.GetKeyDown(KeyCode.F8)) Duel.ReleaseHeldLoad("F8 pressed");
             if (Input.GetKeyDown(KeyCode.F11)) _session.SendChat("ping from " + _playerName.Value + " at " + Time.realtimeSinceStartup.ToString("F1") + "s");
             try { _session.Update(); }
             catch (System.Exception ex) { Log("Session error: " + ex); }
@@ -91,6 +92,7 @@ namespace ColdWatersMP
 
         void Log(string msg)
         {
+            msg = System.DateTime.Now.ToString("HH:mm:ss.f") + " " + msg;
             Logger.LogInfo("CWMP " + msg);
             _logLines.Add(msg);
             if (_logLines.Count > 50) _logLines.RemoveAt(0);

@@ -35,6 +35,10 @@ namespace ColdWatersMP
         static float _placeOwnHeading, _placeOppHeading;
         static float _sendTimer;
         static bool _choiceMade;            // set once the player has accepted a sub on vessel select
+        // Start gate: a mission load is held until the opponent's sub choice has arrived.
+        static LevelLoadManager _heldLoad;
+        static bool _releasingLoad;
+        public static bool WaitingForOpponentChoice { get { return _heldLoad != null; } }
 
         // Latest two opponent states, for extrapolation
         struct SubState { public float T; public Vector3 Pos; public Vector3 Euler; public float SpeedZ; public int Telegraph; public Vector2 Rudder; public Vector2 Ballast; public bool Cav; public bool Silent; public bool Submerged; }
@@ -49,6 +53,7 @@ namespace ColdWatersMP
                 if (Session == null || Session.State != SessionState.Ready) return "";
                 string opp = OppClass >= 0 ? OppClassName : "not chosen yet";
                 string s = "Opponent sub: " + opp;
+                if (WaitingForOpponentChoice) s += " | WAITING for opponent's sub choice (F8: start anyway)";
                 if (InDuel) s += " | duel " + (OppInMission ? "running" : "waiting for opponent to load") + (Puppet != null ? " | states " + _stateCount : "");
                 return s;
             }
@@ -98,14 +103,21 @@ namespace ColdWatersMP
         // ---------- level load ----------
 
         /// <summary>LoadLevel prefix: turn the chosen single mission into a 1v1 duel.</summary>
-        public static void BeforeLoadLevel(LevelLoadManager llm)
+        /// <returns>false to hold the load until the opponent's sub choice arrives.</returns>
+        public static bool BeforeLoadLevel(LevelLoadManager llm)
         {
             InDuel = false; Puppet = null; LocalInMission = false; _haveState = false; _stateCount = 0;
             Weapons.Reset();
-            if (!Active || !GameDataManager.missionMode) return;
+            if (!Active || !GameDataManager.missionMode) return true;
             if (!_choiceMade) OnSubAccepted(); // fallback: make sure the opponent learns our sub
-            LevelLoadData d = llm.levelloaddata;
             int oppCls = OppClass;
+            if (oppCls < 0 && !_releasingLoad)
+            {
+                _heldLoad = llm;
+                Log("Waiting for the opponent to choose a sub; the mission starts when it arrives (F8: start anyway)");
+                return false;
+            }
+            LevelLoadData d = llm.levelloaddata;
             if (oppCls < 0)
             {
                 oppCls = UIFunctions.globaluifunctions.playerfunctions.playerVesselClass;
@@ -121,6 +133,19 @@ namespace ColdWatersMP
             d.kmSlots = new int[1];
             InDuel = true;
             Log("Duel: mission rewritten to 1 enemy (" + ClassName(oppCls) + "), no traffic or aircraft");
+            return true;
+        }
+
+        /// <summary>Run a held mission load (opponent's choice arrived, or the player pressed F8).</summary>
+        public static void ReleaseHeldLoad(string why)
+        {
+            LevelLoadManager llm = _heldLoad;
+            if (llm == null) return;
+            _heldLoad = null;
+            Log("Starting the mission (" + why + ")");
+            _releasingLoad = true;
+            try { llm.LoadLevel(); }
+            finally { _releasingLoad = false; }
         }
 
         /// <summary>LoadLevel postfix: set up the puppet and placement.</summary>
@@ -192,6 +217,7 @@ namespace ColdWatersMP
         public static void EndDuel()
         {
             InDuel = false; Puppet = null; LocalInMission = false;
+            _choiceMade = false; _heldLoad = null; // a new mission needs a new choice
             Weapons.Reset();
         }
 
@@ -270,6 +296,7 @@ namespace ColdWatersMP
                     string mine = ClassName(OppClass);
                     if (mine != OppClassName) Log("WARNING: opponent's sub " + OppClassName + " is " + mine + " here (data mismatch?)");
                     Log("Opponent chose " + OppClassName);
+                    if (_heldLoad != null) ReleaseHeldLoad("opponent chose " + OppClassName);
                     if (InDuel && Puppet != null && Puppet.databaseshipdata.shipPrefabName != OppClassName)
                         Log("WARNING: puppet is a " + Puppet.databaseshipdata.shipPrefabName + " but opponent chose " + OppClassName + ". Pick both subs before starting either mission.");
                     break;
@@ -285,6 +312,7 @@ namespace ColdWatersMP
                 case G_INMISSION:
                     OppInMission = r.ReadBoolean();
                     Log("Opponent " + (OppInMission ? "is in the mission" : "left the mission"));
+                    if (!OppInMission) { OppClass = -1; OppClassName = ""; } // they will choose again
                     break;
                 case G_STATE:
                 {
@@ -314,7 +342,7 @@ namespace ColdWatersMP
     [HarmonyPatch(typeof(LevelLoadManager), "LoadLevel")]
     static class Patch_LoadLevel
     {
-        static void Prefix(LevelLoadManager __instance) { Duel.BeforeLoadLevel(__instance); }
+        static bool Prefix(LevelLoadManager __instance) { return Duel.BeforeLoadLevel(__instance); }
         static void Postfix() { Duel.AfterLoadLevel(); }
     }
 
