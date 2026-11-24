@@ -26,6 +26,7 @@ namespace ColdWatersMP
         static readonly Dictionary<Torpedo, int> _ownIds = new Dictionary<Torpedo, int>();
         static readonly Dictionary<int, Incoming> _incoming = new Dictionary<int, Incoming>();
         static readonly HashSet<Torpedo> _puppetTorps = new HashSet<Torpedo>();
+        static readonly HashSet<int> _onNoisemaker = new HashSet<int>();
         static float _sendTimer, _damageTimer;
         static float _lastSentDamage = -1f;
         static bool _lastSentSinking;
@@ -35,7 +36,7 @@ namespace ColdWatersMP
 
         public static void Reset()
         {
-            _own.Clear(); _ownIds.Clear(); _incoming.Clear(); _puppetTorps.Clear();
+            _own.Clear(); _ownIds.Clear(); _incoming.Clear(); _puppetTorps.Clear(); _onNoisemaker.Clear();
             _lastSentDamage = -1f; _lastSentSinking = false;
         }
 
@@ -69,6 +70,12 @@ namespace ColdWatersMP
                 if (t == null) { if (ended == null) ended = new List<int>(); ended.Add(id); continue; }
                 Vector3 pos = t.transform.position; Vector3 eul = t.transform.eulerAngles; float time = Time.time;
                 bool homing = Duel.Puppet != null && t.targetTransform == Duel.Puppet.transform;
+                bool decoyed = t.targetNoisemaker != null;
+                if (decoyed != _onNoisemaker.Contains(id))
+                {
+                    if (decoyed) _onNoisemaker.Add(id); else _onNoisemaker.Remove(id);
+                    Duel.Log("Our torpedo #" + id + (decoyed ? " is going for a NOISEMAKER" : " left the noisemaker"));
+                }
                 S.SendGame(G_TORP_STATE, w => { w.Write(id); w.Write(time); WriteV3(w, pos); WriteV3(w, eul); w.Write(homing); }, false);
             }
             if (ended == null) return;
