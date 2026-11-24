@@ -70,11 +70,15 @@ namespace ColdWatersMP
                 if (t == null) { if (ended == null) ended = new List<int>(); ended.Add(id); continue; }
                 Vector3 pos = t.transform.position; Vector3 eul = t.transform.eulerAngles; float time = Time.time;
                 bool homing = Duel.Puppet != null && t.targetTransform == Duel.Puppet.transform;
-                bool decoyed = t.targetNoisemaker != null;
+                // targetNoisemaker is a scratch field; the chosen target is targetTransform.
+                Noisemaker nm = t.targetTransform != null ? t.targetTransform.GetComponent<Noisemaker>() : null;
+                Torpedo dt = (nm == null && t.targetTransform != null) ? t.targetTransform.GetComponent<Torpedo>() : null;
+                bool decoyed = (nm != null && nm.databasecountermeasuredata != null && !nm.databasecountermeasuredata.isWakeBubble)
+                    || (dt != null && dt.databaseweapondata != null && dt.databaseweapondata.weaponType == "DECOY");
                 if (decoyed != _onNoisemaker.Contains(id))
                 {
                     if (decoyed) _onNoisemaker.Add(id); else _onNoisemaker.Remove(id);
-                    Duel.Log("Our torpedo #" + id + (decoyed ? " is going for a NOISEMAKER" : " left the noisemaker"));
+                    Duel.Log("Our torpedo #" + id + (decoyed ? " is going for a NOISEMAKER/DECOY" : " left the noisemaker/decoy"));
                 }
                 S.SendGame(G_TORP_STATE, w => { w.Write(id); w.Write(time); WriteV3(w, pos); WriteV3(w, eul); w.Write(homing); }, false);
             }
