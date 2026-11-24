@@ -97,8 +97,14 @@ namespace ColdWatersMP
                 {
                     if (_choiceMade) SendSubChoice(); // re-send a real choice to a newly joined peer
                     EnvSync.HostNewSeed();
+                    if (Session.IsHost && _heldLoad != null) Match.HostResend(); // the client needs our map to start
                 }
-                else { OppClass = -1; OppClassName = ""; OppInMission = false; }
+                else
+                {
+                    OppClass = -1; OppClassName = ""; OppInMission = false;
+                    TimeSync.Reset();             // never stay paused or compressed for a peer that is gone
+                    Match.OnHostLeftMission();    // client: the host's map is stale after a reconnect
+                }
             };
         }
 
@@ -159,6 +165,12 @@ namespace ColdWatersMP
             if (!Active || !GameDataManager.missionMode) return true;
             if (!_choiceMade) OnSubAccepted(); // fallback: make sure the opponent learns our sub
             if (Session.IsHost && !_releasingLoad) Match.HostPrepare(llm.levelloaddata); // our map and conditions, for both of us (once)
+            if (OppInMission && !_releasingLoad)
+            {
+                _heldLoad = llm;
+                Log("Waiting for the opponent to leave the previous mission (F8: start anyway)");
+                return false;
+            }
             int oppCls = OppClass;
             if (oppCls < 0 && !_releasingLoad)
             {
@@ -194,6 +206,14 @@ namespace ColdWatersMP
             InDuel = true;
             Log("Duel: mission rewritten to 1 enemy (" + ClassName(oppCls) + "), no traffic or aircraft");
             return true;
+        }
+
+        /// <summary>Back at the main menu: a mission load still on hold must not start later by itself.</summary>
+        public static void DropHeldLoad()
+        {
+            if (_heldLoad == null) return;
+            _heldLoad = null;
+            Log("Held mission start cancelled (back at the main menu)");
         }
 
         /// <summary>Run a held mission load (opponent's choice arrived, or the player pressed F8).</summary>
@@ -401,6 +421,13 @@ namespace ColdWatersMP
             _ownAtStations = false; _oppAtStations = false; _heldStations = null; OppMissionId = -1;
             TimeSync.Reset();
             Match.RestoreLocalDifficulty();
+            if (OppInMission)
+            {
+                // They are still in the old mission: their sub choice (and, for a client, the host's map) belong
+                // to it. They send fresh ones when they choose again.
+                OppClass = -1; OppClassName = "";
+                if (!Session.IsHost) Match.OnHostLeftMission();
+            }
             _ownSunk = false; _oppSunk = false; // keep Result on the overlay until the next mission
             EnvSync.HostNewSeed(); // host: new ocean for the next mission (the client keeps the latest seed it got)
             Weapons.Reset();
@@ -505,7 +532,7 @@ namespace ColdWatersMP
                     string mine = ClassName(OppClass);
                     if (mine != OppClassName) Log("WARNING: opponent's sub " + OppClassName + " is " + mine + " here (data mismatch?)");
                     Log("Opponent chose " + OppClassName);
-                    if (_heldLoad != null && (Session.IsHost || Match.HaveHostMatch)) ReleaseHeldLoad("opponent chose " + OppClassName);
+                    if (_heldLoad != null && !OppInMission && (Session.IsHost || Match.HaveHostMatch)) ReleaseHeldLoad("opponent chose " + OppClassName);
                     if (InDuel && Puppet != null && Puppet.databaseshipdata.shipPrefabName != OppClassName)
                         Log("WARNING: puppet is a " + Puppet.databaseshipdata.shipPrefabName + " but opponent chose " + OppClassName + ". Pick both subs before starting either mission.");
                     break;
@@ -589,7 +616,7 @@ namespace ColdWatersMP
     [HarmonyPatch(typeof(UIFunctions), "BackToMain")]
     static class Patch_UIBackToMain
     {
-        static void Prefix() { Duel.OnLeftMission("back to main menu"); }
+        static void Prefix() { Duel.OnLeftMission("back to main menu"); Duel.DropHeldLoad(); }
     }
 
     [HarmonyPatch(typeof(MissionManager), "BackToMain")]

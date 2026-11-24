@@ -25,8 +25,9 @@ namespace ColdWatersMP
         public static bool HostAllowTC = true;     // host setting: time compression by mutual agreement
         static bool _clientPauseBoth, _clientAllowTC = true;
         /// <summary>The setting in force: the host's own, or what the host sent us.</summary>
-        public static bool PauseBoth { get { return Duel.Session != null && !Duel.Session.IsHost ? _clientPauseBoth : HostPauseBoth; } }
-        public static bool TimeCompressionAllowed { get { return Duel.Session != null && !Duel.Session.IsHost ? _clientAllowTC : HostAllowTC; } }
+        static bool _matchPauseBoth, _matchAllowTC = true; // host: the values sent with the current match
+        public static bool PauseBoth { get { return Duel.Session != null && !Duel.Session.IsHost ? _clientPauseBoth : _matchPauseBoth; } }
+        public static bool TimeCompressionAllowed { get { return Duel.Session != null && !Duel.Session.IsHost ? _clientAllowTC : _matchAllowTC; } }
         public static readonly string[] TimeNames = { "Random", "Dawn", "Day", "Dusk", "Night" };
         static readonly int[] TimeHours = { -1, 7, 12, 17, 1 };
 
@@ -71,10 +72,15 @@ namespace ColdWatersMP
             d.usePresetEnvironment = s.PresetEnv; d.timeofday = s.TimeOfDay; d.timeOfDayString = s.TimeString;
             d.environment = s.Environment; d.seaState = s.SeaState; d.ductStrength = s.Duct; d.layerStrength = s.Layer;
             d.combatLocation = s.CombatLocation; d.missionPosition = s.MissionPosition;
-            // A duel has no minefields, sonobuoys or preset player position (the host places the client).
+            ClearHazards(d);
+            d.usePresetPositions = false; // the host places the client
+        }
+
+        /// <summary>A duel has no minefields or sonobuoys (both sides).</summary>
+        static void ClearHazards(LevelLoadData d)
+        {
             d.proximityMineLocations = new Vector2[0];
             d.sonobuoyLocations = new Vector3[0];
-            d.usePresetPositions = false;
         }
 
         static void Write(BinaryWriter w, Snapshot s)
@@ -104,9 +110,23 @@ namespace ColdWatersMP
         {
             if (d == null) return;
             ApplyConditionSettings(d);
-            Snapshot s = Take(d);
-            int seq = ++_sentSeq;
-            bool pause = HostPauseBoth, tc = HostAllowTC;
+            ClearHazards(d);
+            _lastSent = Take(d);
+            _lastSentSeq = ++_sentSeq;
+            _matchPauseBoth = HostPauseBoth; _matchAllowTC = HostAllowTC;
+            SendLast();
+        }
+
+        static Snapshot _lastSent;
+        static int _lastSentSeq;
+
+        /// <summary>Host: send the current match again (the client reconnected while we wait to load).</summary>
+        public static void HostResend() { if (_lastSent != null) { SendLast(); Duel.Log("Match re-sent to the client"); } }
+
+        static void SendLast()
+        {
+            Snapshot s = _lastSent; int seq = _lastSentSeq;
+            bool pause = _matchPauseBoth, tc = _matchAllowTC;
             Dictionary<string, float> diff = OptionsManager.difficultySettings != null ? new Dictionary<string, float>(OptionsManager.difficultySettings) : new Dictionary<string, float>();
             Duel.Session.SendGame(G_MATCH, w =>
             {

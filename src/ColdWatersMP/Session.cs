@@ -88,6 +88,14 @@ namespace ColdWatersMP
             Transport.Poll(_events);
             foreach (NetEvent e in _events)
             {
+                try { HandleEvent(e); }
+                catch (Exception ex) { _log("Error handling a network event: " + ex); } // one bad message must not drop the rest
+            }
+        }
+
+        void HandleEvent(NetEvent e)
+        {
+            {
                 switch (e.Type)
                 {
                     case NetEventType.Connected:

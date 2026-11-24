@@ -11,7 +11,7 @@ namespace ColdWatersMP
     [BepInPlugin("cwmp", "Cold Waters MP", PluginVersion)]
     public class CwmpPlugin : BaseUnityPlugin
     {
-        public const string PluginVersion = "0.0.21";
+        public const string PluginVersion = "0.0.22";
 
         ConfigEntry<string> _role, _hostAddress, _playerName, _fakeHash;
         ConfigEntry<int> _port;
@@ -153,14 +153,14 @@ namespace ColdWatersMP
                 Match.Duct = Stepper("Surface duct", Mathf.Clamp(Match.Duct, 0, str.Length), str.Length + 1, Match.Duct == 0 ? "Random" : Match.Name(str, Match.Duct - 1));
                 Match.TimeChoice = Stepper("Time", Mathf.Clamp(Match.TimeChoice, 0, 4), 5, Match.TimeNames[Mathf.Clamp(Match.TimeChoice, 0, 4)]);
             }
-            int r = Mathf.RoundToInt(Duel.RangeNm * 2f);
+            int r = Mathf.RoundToInt(Duel.RangeNm * 2f), r0 = r;
             GUILayout.BeginHorizontal();
             GUILayout.Label("Start range", GUILayout.Width(110));
             if (GUILayout.Button("<", GUILayout.Width(28)) && r > 1) r--;
-            GUILayout.Label((r / 2f).ToString("0.0") + " nm", GUILayout.Width(200));
+            GUILayout.Label(Duel.RangeNm.ToString("0.0#") + " nm", GUILayout.Width(200));
             if (GUILayout.Button(">", GUILayout.Width(28)) && r < 60) r++;
             GUILayout.EndHorizontal();
-            Duel.RangeNm = r / 2f;
+            if (r != r0) Duel.RangeNm = r / 2f; // only round when the host actually changes it
             bool pb = Match.HostPauseBoth, tc = Match.HostAllowTC;
             Match.HostPauseBoth = Stepper("Pause", Match.HostPauseBoth ? 1 : 0, 2, Match.HostPauseBoth ? "Esc pauses both" : "Blocked") == 1;
             Match.HostAllowTC = Stepper("Time compr.", Match.HostAllowTC ? 1 : 0, 2, Match.HostAllowTC ? "When both ask" : "Off") == 1;

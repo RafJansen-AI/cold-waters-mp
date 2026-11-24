@@ -64,8 +64,8 @@ namespace ColdWatersMP
             if (!Duel.InDuel || _bypass || PF == null) return true;
             if (TCOn)
             {
-                // Turning off: always allowed, and stops it for the opponent too.
-                _ownWantsTC = false;
+                // Turning off: always allowed, and stops it for the opponent too. Both must ask again to restart.
+                _ownWantsTC = false; _oppWantsTC = false;
                 Send(G_TC, false);
                 Duel.Log("Time compression stopped (both)");
                 return true;
@@ -90,7 +90,7 @@ namespace ColdWatersMP
         public static void OnStopTimeCompression()
         {
             if (!Duel.InDuel || _bypass || PF == null) return;
-            if (TCOn || _ownWantsTC) { _ownWantsTC = false; Send(G_TC, false); Duel.Log("Time compression stopped/withdrawn"); }
+            if (TCOn || _ownWantsTC) { _ownWantsTC = false; if (TCOn) _oppWantsTC = false; Send(G_TC, false); Duel.Log("Time compression stopped/withdrawn"); }
         }
 
         // ---- pause ----
