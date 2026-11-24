@@ -156,9 +156,16 @@ namespace ColdWatersMP
             foreach (KeyValuePair<int, Incoming> kv in _incoming) if (kv.Value.T == t) { id = kv.Key; inc = kv.Value; break; }
             if (inc == null) return;
 
+            if (t.destroyMe && t.damageDealt == 0)
+            {
+                // Flagged without hitting anything (mission teardown, noisemaker, ...): not a hit.
+                Duel.Log("Opponent torpedo #" + id + " removed here without a hit");
+                Kill(id, false);
+                return;
+            }
             if (t.destroyMe)
             {
-                // The game flagged it: it touched our sub and Compartment.OnTriggerEnter applied damage.
+                // Compartment.OnTriggerEnter counted a hit on our sub (damageDealt) and applied damage.
                 int idCopy = id;
                 S.SendGame(G_TORP_HIT, w => w.Write(idCopy), true);
                 Duel.Log("Opponent torpedo #" + id + " hit us");

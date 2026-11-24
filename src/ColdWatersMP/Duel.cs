@@ -500,6 +500,12 @@ namespace ColdWatersMP
         static void Prefix() { Duel.OnLeftMission("mission ended"); }
     }
 
+    [HarmonyPatch(typeof(UIFunctions), "CleanupLevel")]
+    static class Patch_CleanupLevel
+    {
+        static void Prefix() { Duel.OnLeftMission("level cleanup"); }
+    }
+
     [HarmonyPatch(typeof(UIFunctions), "BackToMain")]
     static class Patch_UIBackToMain
     {
