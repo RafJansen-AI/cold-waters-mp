@@ -86,10 +86,10 @@ This repository is source only: no game, DotMod or BepInEx files. The plugin is 
 
 ## Licence
 
-zlib (see [LICENSE](LICENSE)): free to use and change; changed versions must be marked as such. BepInEx inside the release zip keeps its own licence (LGPL-2.1).
+zlib (see [LICENSE](LICENSE)): free to use and change; changed versions must be marked as such. BepInEx inside the release zip keeps its own licence (MIT, included as `BepInEx/LICENSE-BepInEx.txt`).
 
 ## Credits
 
 - [DotMod](https://github.com/DotModGroup/ColdWaters-DotMod) by the DotMod team: this mod is built on top of it.
-- [BepInEx](https://github.com/BepInEx/BepInEx) (LGPL-2.1) and [Harmony](https://github.com/pardeike/Harmony) (MIT).
+- [BepInEx](https://github.com/BepInEx/BepInEx), [HarmonyX](https://github.com/BepInEx/HarmonyX), MonoMod and Mono.Cecil (all MIT).
 - Cold Waters by Killerfish Games. This is an unofficial fan mod.
