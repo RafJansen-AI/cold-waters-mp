@@ -113,6 +113,7 @@ namespace ColdWatersMP
         public void Leave()
         {
             if (State == SessionState.Ready) SetReady(false);
+            _kickWhy = null;
             Transport.Stop();
             State = SessionState.Idle; Status = "Not connected"; PeerName = null;
         }
@@ -141,11 +142,13 @@ namespace ColdWatersMP
                 {
                     case NetEventType.Connected:
                         State = SessionState.Handshaking; Status = "Connected, checking builds"; _handshakeSince = System.Environment.TickCount;
+                        _kickWhy = null; // a new peer: an old pending kick isn't for them
                         _log("Transport connected");
                         if (!IsHost) SendHello();
                         break;
                     case NetEventType.Disconnected:
                         _log("Disconnected: " + e.Reason);
+                        _kickWhy = null;
                         PeerName = null;
                         if (State == SessionState.Ready) SetReady(false);
                         if (State == SessionState.Rejected) break; // keep the rejection reason visible
@@ -203,7 +206,7 @@ namespace ColdWatersMP
                 {
                     case MsgType.Hello:
                     {
-                        if (!IsHost) return;
+                        if (!IsHost || _kickWhy != null) return; // a kick is pending: no more guesses on this connection
                         int proto = r.ReadInt32();
                         string ver = r.ReadString();
                         string name = r.ReadString();
