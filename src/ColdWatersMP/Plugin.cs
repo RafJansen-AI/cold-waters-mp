@@ -12,7 +12,7 @@ namespace ColdWatersMP
     public class CwmpPlugin : BaseUnityPlugin
     {
         public static string ModHash = "";
-        public const string PluginVersion = "0.0.42";
+        public const string PluginVersion = "0.0.43";
 
         ConfigEntry<string> _role, _hostAddress, _playerName, _fakeHash;
         ConfigEntry<int> _port;
@@ -81,6 +81,13 @@ namespace ColdWatersMP
                         if (File.Exists(Path.Combine(root, file))) fp[top + "/" + file] = Fingerprint.HashFile(Path.Combine(root, file));
                 }
                 Log("Fingerprinted " + (fp.Count - 1) + " game data sets");
+                if (fp["Assembly-CSharp.dll"] == DataCheck.DotModDllSha)
+                {
+                    Fingerprint.LocalDeviations = DataCheck.Deviations(Path.Combine(Application.streamingAssetsPath, "dotmod"));
+                    if (Fingerprint.LocalDeviations.Count == 0) Log("DotMod data: all files match DotMod v0.4c");
+                    else Log("DotMod data differs from DotMod v0.4c in " + Fingerprint.LocalDeviations.Count + " file(s): " + string.Join(", ", Fingerprint.LocalDeviations.ToArray())
+                        + ". Players with different files can't play each other. Fix: in JSGME disable and enable DotMod (its installer only updates MODS\\DotMod).");
+                }
             }
             catch (System.Exception ex) { Log("Game data fingerprint failed: " + ex.Message); }
 
@@ -194,6 +201,8 @@ namespace ColdWatersMP
         void ConnectionSection()
         {
             bool connected = _session.State == SessionState.Ready;
+            if (Fingerprint.LocalDeviations.Count > 0)
+                GUILayout.Label("Your DotMod data differs from DotMod v0.4c in " + Fingerprint.LocalDeviations.Count + " file(s), e.g. " + Fingerprint.LocalDeviations[0] + ". In JSGME, disable and enable DotMod to restore it.");
             GUILayout.Label("Mod " + PluginVersion + (ModHash.Length >= 16 ? ", DLL SHA-256 " + ModHash.Substring(0, 16) + "... (compare with the release page)" : ""));
             GUILayout.Label("Status: " + _session.Status + (_session.Transport.IsConnected ? "  (" + _session.Transport.RttMs.ToString("F0") + " ms)" : ""));
             bool host = _role.Value.Trim().ToLowerInvariant() != "client";

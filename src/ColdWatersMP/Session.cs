@@ -14,6 +14,8 @@ namespace ColdWatersMP
     public static class Fingerprint
     {
         public const int ProtocolVersion = 1;
+        /// <summary>This install's files that differ from DotMod v0.4c (sent with Hello so a refusal can name them).</summary>
+        public static List<string> LocalDeviations = new List<string>();
 
         /// <summary>SHA-256 (hex) of a file, or "missing".</summary>
         public static string HashFile(string path)
@@ -169,6 +171,9 @@ namespace ColdWatersMP
                 w.Write(_localName);
                 w.Write(_fingerprint.Count);
                 foreach (KeyValuePair<string, string> kv in _fingerprint) { w.Write(kv.Key); w.Write(kv.Value); }
+                int m = System.Math.Min(12, Fingerprint.LocalDeviations.Count);
+                w.Write(Fingerprint.LocalDeviations.Count);
+                for (int i = 0; i < m; i++) w.Write(Fingerprint.LocalDeviations[i]);
             }), true);
         }
 
@@ -189,6 +194,13 @@ namespace ColdWatersMP
                         if (n < 0 || n > 256) return; // malformed
                         Dictionary<string, string> theirs = new Dictionary<string, string>();
                         for (int i = 0; i < n; i++) theirs[r.ReadString()] = r.ReadString();
+                        _theirDev = new List<string>(); _theirDevCount = 0;
+                        if (r.BaseStream.Position < r.BaseStream.Length)
+                        {
+                            _theirDevCount = r.ReadInt32();
+                            int m = System.Math.Min(12, System.Math.Max(0, _theirDevCount));
+                            for (int i = 0; i < m; i++) { string s = r.ReadString(); _theirDev.Add(s.Length > 80 ? s.Substring(0, 80) : s); }
+                        }
                         string problem = Compare(proto, ver, theirs);
                         if (problem != null)
                         {
@@ -246,8 +258,18 @@ namespace ColdWatersMP
             if (diffs.Count == 0) return null;
             string hint = diffs.Exists(d => d.StartsWith("ColdWatersMP.dll")) ? " - the mod DLLs differ: both download the same release from GitHub"
                         : diffs.Exists(d => d.StartsWith("Assembly-CSharp")) ? " - the game or DotMod differs: same game version and DotMod v0.4c on both"
-                        : " - game data differs: put back edited files or reinstall DotMod on one side";
+                        : " - game data differs." + Named("Host", Fingerprint.LocalDeviations, Fingerprint.LocalDeviations.Count) + Named("Client", _theirDev, _theirDevCount)
+                          + " Fix: in JSGME disable and enable DotMod (its installer only updates MODS\\DotMod), or put back the original files";
             return "install mismatch: " + string.Join(", ", diffs.ToArray()) + hint;
+        }
+
+        List<string> _theirDev = new List<string>(); int _theirDevCount;
+
+        static string Named(string who, List<string> l, int count)
+        {
+            if (count <= 0) return " " + who + ": matches DotMod v0.4c.";
+            int m = System.Math.Min(4, l.Count);
+            return " " + who + " differs from DotMod v0.4c in " + count + " file(s): " + string.Join(", ", l.GetRange(0, m).ToArray()) + (count > m ? ", ..." : "") + ".";
         }
 
         static byte[] Build(MsgType t, Action<BinaryWriter> body)

@@ -155,7 +155,10 @@ function Do-Install {
     $dll = Join-Path $GameDir $DllRel
     $h = Sha $dll
     $needDotMod = $false
-    if ($h -eq $DotModDllSha) { Good 'DotMod v0.4c is already installed: only Cold Waters MP will be added.' }
+    $ml = @(); if (Test-Path -LiteralPath $script:ManifestPath) { $ml = @(Get-Content -LiteralPath $script:ManifestPath) }
+    $halfDone = ($h -eq $DotModDllSha) -and ($ml -contains '#replaced ' + $DotModDllSha + ' ' + $DllRel) -and -not ($ml -contains '#dotmod complete')
+    if ($halfDone) { $needDotMod = $true; Warn 'An earlier DotMod install by this setup did not finish: it will be completed now.' }
+    elseif ($h -eq $DotModDllSha) { Good 'DotMod v0.4c is already installed: only Cold Waters MP will be added.' }
     elseif ($h -eq $CleanDllSha) { $needDotMod = $true; Say 'Clean Cold Waters 1.15g found: DotMod v0.4c will be installed first, then Cold Waters MP.' }
     else {
         Fail ("This Cold Waters is not a clean 1.15g or DotMod v0.4c install (Assembly-CSharp.dll is another version, so another mod or game version is installed).`n" +
@@ -191,6 +194,7 @@ function Do-Install {
         Say 'Copying DotMod files...'
         Copy-Tree $data 'ColdWaters_Data'
         if ((Sha $dll) -ne $DotModDllSha) { Fail 'DotMod did not install correctly (DLL check failed). Run Uninstall.cmd to undo.' }
+        Log-Line '#dotmod complete'
         Good 'DotMod v0.4c installed.'
         Remove-Item -LiteralPath $ex -Recurse -Force -ErrorAction SilentlyContinue
     }
