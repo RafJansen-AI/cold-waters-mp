@@ -1,7 +1,7 @@
 # Compares your DotMod game data with the official DotMod v0.4c release, file by file.
 # Usage: right-click > Run with PowerShell, or: powershell -ExecutionPolicy Bypass -File check-dotmod.ps1 "C:\path\to\Cold Waters"
 # Read-only: it changes nothing.
-param([string]$GameDir = "")
+param([string]$GameDir = "", [switch]$NoPause)   # -NoPause: used by the setup script; returns the number of differences
 $ErrorActionPreference = 'Stop'
 if (-not $GameDir) {
     foreach ($d in @((Get-Location).Path, "${env:ProgramFiles(x86)}\GOG Galaxy\Games\Cold Waters", "${env:ProgramFiles(x86)}\Steam\steamapps\common\Cold Waters")) {
@@ -10,7 +10,7 @@ if (-not $GameDir) {
 }
 if (-not $GameDir) { $GameDir = Read-Host 'Cold Waters folder' }
 $root = Join-Path $GameDir 'ColdWaters_Data\StreamingAssets\dotmod'
-if (-not (Test-Path -LiteralPath $root)) { Write-Host "No DotMod data at $root" -ForegroundColor Red; Read-Host 'Enter to close'; exit 1 }
+if (-not (Test-Path -LiteralPath $root)) { Write-Host "No DotMod data at $root" -ForegroundColor Red; if ($NoPause) { return -1 }; Read-Host 'Enter to close'; exit 1 }
 $ref = @{}
 foreach ($l in @'
 A4870BC4A047ED31C2C17B587F1533B115E3A208348323C8133CBD4E11966B73 aircraft\01_USN\01_Helicopters\aircraft_usn_qh-50.txt
@@ -566,4 +566,5 @@ foreach ($sub in 'vessels','weapons','sensors','aircraft','environment') {
 Write-Host ''
 if ($bad -eq 0) { Write-Host "All $($ref.Count) checked files match DotMod v0.4c." -ForegroundColor Green }
 else { Write-Host "$bad difference(s) with DotMod v0.4c in $root" -ForegroundColor Red }
+if ($NoPause) { return $bad }
 Read-Host 'Enter to close'

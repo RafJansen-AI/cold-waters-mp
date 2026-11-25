@@ -208,6 +208,13 @@ function Do-Install {
     Say 'Installing Cold Waters MP...'
     Copy-Tree $ModFiles ''
     Good 'Cold Waters MP installed.'
+    $chk = Join-Path $PSScriptRoot 'check-dotmod.ps1'
+    if (Test-Path -LiteralPath $chk) {
+        Say 'Checking DotMod game data against the official v0.4c files...'
+        $n = & $chk -GameDir $GameDir -NoPause | Select-Object -Last 1
+        if ($n -ne 0) { Warn ("Your DotMod data differs from the official v0.4c (listed above). Multiplayer refuses to connect two players whose data differs.`n" +
+            "If you use JSGME, disable and re-enable DotMod in JSGME, or restore the listed files.") }
+    }
     Say ''
     Say 'Start Cold Waters. The main menu now has a MULTIPLAYER button.'
     Say 'To remove everything this setup added, run Uninstall.cmd.'
