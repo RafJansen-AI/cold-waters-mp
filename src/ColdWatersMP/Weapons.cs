@@ -27,6 +27,7 @@ namespace ColdWatersMP
         static readonly Dictionary<int, Incoming> _incoming = new Dictionary<int, Incoming>();
         static readonly HashSet<Torpedo> _puppetTorps = new HashSet<Torpedo>();
         static readonly HashSet<int> _onNoisemaker = new HashSet<int>();
+        static readonly Dictionary<int, float> _decoyLogAt = new Dictionary<int, float>();
         static float _sendTimer, _damageTimer;
         static float _lastSentDamage = -1f;
         static bool _lastSentSinking;
@@ -36,7 +37,7 @@ namespace ColdWatersMP
 
         public static void Reset()
         {
-            _own.Clear(); _ownIds.Clear(); _incoming.Clear(); _puppetTorps.Clear(); _onNoisemaker.Clear();
+            _own.Clear(); _ownIds.Clear(); _incoming.Clear(); _puppetTorps.Clear(); _onNoisemaker.Clear(); _decoyLogAt.Clear();
             _lastSentDamage = -1f; _lastSentSinking = false;
             OwnFired = 0; OppFired = 0; OwnHits = 0; OppHits = 0;
         }
@@ -84,7 +85,12 @@ namespace ColdWatersMP
                 if (decoyed != _onNoisemaker.Contains(id))
                 {
                     if (decoyed) _onNoisemaker.Add(id); else _onNoisemaker.Remove(id);
-                    Duel.Log("~Our torpedo #" + id + (decoyed ? " is going for a NOISEMAKER/DECOY" : " left the noisemaker/decoy"));
+                    float last;
+                    if (!_decoyLogAt.TryGetValue(id, out last) || Time.time - last > 3f) // seekers flicker: log at most every 3 s
+                    {
+                        _decoyLogAt[id] = Time.time;
+                        Duel.Log("~Our torpedo #" + id + (decoyed ? " is going for a NOISEMAKER/DECOY" : " left the noisemaker/decoy"));
+                    }
                 }
                 S.SendGame(G_TORP_STATE, w => { w.Write(id); w.Write(time); WriteV3(w, pos); WriteV3(w, eul); w.Write(homing); }, false);
             }
