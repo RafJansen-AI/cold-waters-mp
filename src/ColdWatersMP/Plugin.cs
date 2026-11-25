@@ -236,6 +236,7 @@ namespace ColdWatersMP
             GUILayout.BeginHorizontal();
             GUILayout.Label("Password", GUILayout.Width(110));
             _password.Value = GUILayout.PasswordField(_password.Value ?? "", '*', 32, GUILayout.Width(200));
+            _session.Password = (_password.Value ?? "").Trim(); // takes effect for the next join, also while hosting
             GUILayout.Label("optional, the same on both sides");
             GUILayout.EndHorizontal();
             GUILayout.BeginHorizontal();

@@ -76,7 +76,7 @@ namespace ColdWatersMP
         {
             if (string.IsNullOrEmpty(pw)) return "";
             using (SHA256 sha = new SHA256Managed())
-                return Fingerprint.ToHex(sha.ComputeHash(Encoding.UTF8.GetBytes("cwmp-session:" + pw)));
+                return Fingerprint.ToHex(sha.ComputeHash(Encoding.UTF8.GetBytes("cwmp-session:" + pw))).Substring(0, 16);
         }
         readonly List<NetEvent> _events = new List<NetEvent>();
         readonly Action<string> _log;
@@ -117,8 +117,14 @@ namespace ColdWatersMP
             State = SessionState.Idle; Status = "Not connected"; PeerName = null;
         }
 
+        int _kickAt, _handshakeSince; string _kickWhy;
+
         public void Update()
         {
+            int nowMs = System.Environment.TickCount;
+            if (IsHost && _kickWhy != null && nowMs - _kickAt >= 0) { Transport.Kick(_kickWhy); _kickWhy = null; }
+            if (IsHost && State == SessionState.Handshaking && _kickWhy == null && nowMs - _handshakeSince > 5000)
+            { _log("No valid hello within 5 s: dropping that connection"); Transport.Kick("no hello"); _handshakeSince = nowMs; }
             _events.Clear();
             Transport.Poll(_events);
             foreach (NetEvent e in _events)
@@ -134,7 +140,7 @@ namespace ColdWatersMP
                 switch (e.Type)
                 {
                     case NetEventType.Connected:
-                        State = SessionState.Handshaking; Status = "Connected, checking builds";
+                        State = SessionState.Handshaking; Status = "Connected, checking builds"; _handshakeSince = System.Environment.TickCount;
                         _log("Transport connected");
                         if (!IsHost) SendHello();
                         break;
@@ -179,7 +185,7 @@ namespace ColdWatersMP
                 w.Write(_pluginVersion);
                 w.Write(_localName);
                 w.Write(_fingerprint.Count);
-                foreach (KeyValuePair<string, string> kv in _fingerprint) { w.Write(kv.Key); w.Write(kv.Value); }
+                foreach (KeyValuePair<string, string> kv in _fingerprint) { w.Write(kv.Key); w.Write(Short(kv.Value)); } // 16 hex each: Hello stays one small packet
                 // File names only, at most 4: Hello must stay one small UDP packet (Tailscale MTU 1280).
                 int m = System.Math.Min(4, Fingerprint.LocalDeviations.Count);
                 w.Write(Fingerprint.LocalDeviations.Count);
@@ -221,6 +227,7 @@ namespace ColdWatersMP
                             _log("Rejecting " + name + ": " + problem);
                             Transport.Send(Build(MsgType.Reject, w => w.Write(problem)), true);
                             Status = "Rejected " + name + ": " + problem;
+                            _kickAt = System.Environment.TickCount + 1500; _kickWhy = "refused: " + problem; // let the reason arrive, then free the place
                             // Host stays listening; client disconnects after reading the reason.
                             return;
                         }
@@ -265,7 +272,7 @@ namespace ColdWatersMP
             {
                 string other;
                 if (!theirs.TryGetValue(kv.Key, out other)) diffs.Add(kv.Key + " missing");
-                else if (other != kv.Value) diffs.Add(kv.Key + " differs");
+                else if (Short(other) != Short(kv.Value)) diffs.Add(kv.Key + " differs");
             }
             foreach (string k in theirs.Keys)
                 if (!_fingerprint.ContainsKey(k)) diffs.Add(k + " only on the client");
@@ -278,6 +285,8 @@ namespace ColdWatersMP
         }
 
         List<string> _theirDev = new List<string>(); int _theirDevCount;
+
+        static string Short(string h) { return h != null && h.Length > 16 ? h.Substring(0, 16) : (h ?? ""); }
 
         static string Named(string who, List<string> l, int count)
         {

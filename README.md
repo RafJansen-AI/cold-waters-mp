@@ -41,7 +41,7 @@ The zip contains [BepInEx 5](https://github.com/BepInEx/BepInEx) (x86), already 
 
 **Address with a port:** the client's address box takes `host` or `host:port`, for tunnels such as playit.gg that give their own port.
 
-**Session password (recommended with strangers):** type the same password on both sides; the host refuses anyone without it. Only a hash is sent, but the game traffic itself is not encrypted.
+**Session password (recommended with strangers):** type the same password on both sides; the host refuses and drops anyone without it, and also drops a connection that sends nothing valid within 5 s. It is a door lock, not encryption: game traffic is not encrypted, and the password is stored as plain text in `cwmp.cfg`, so use a throwaway one.
 
 **Disconnect** (or **Stop hosting**) in the window ends the connection; during a duel it asks for a second click.
 

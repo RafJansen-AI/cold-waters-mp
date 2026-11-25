@@ -26,6 +26,8 @@ namespace ColdWatersMP
         void Send(byte[] payload, bool reliable);
         void Poll(List<NetEvent> events);
         void Stop();
+        /// <summary>Host: drop the current peer at the next Poll and keep listening; refuse its reconnects for a few seconds.</summary>
+        void Kick(string reason);
     }
 
     public class UdpTransport : ITransport
@@ -126,10 +128,25 @@ namespace ColdWatersMP
             }
         }
 
+        string _kickReason; EndPoint _blocked; double _blockedUntil;
+
+        public void Kick(string reason) { if (_isHost && _connected) _kickReason = reason; }
+
         public void Poll(List<NetEvent> events)
         {
             if (!_running || _sock == null) return;
             double now = Now;
+            if (_kickReason != null)
+            {
+                string why = _kickReason; _kickReason = null;
+                _blocked = _peer; _blockedUntil = now + 5.0;
+                try { RawSend(Header(K_DISCONNECT, 0, 0)); } catch (Exception) { }
+                _connected = false; // so Stop() inside Drop doesn't send a second disconnect
+                EndPoint keepBlocked = _blocked; double keepUntil = _blockedUntil;
+                Drop(events, why);
+                _blocked = keepBlocked; _blockedUntil = keepUntil;
+                return;
+            }
 
             // Client: keep knocking until accepted
             if (!_isHost && !_connected && now - _lastConnectTry > ConnectRetrySec)
@@ -158,6 +175,7 @@ namespace ColdWatersMP
 
                 if (kind == K_CONNECT && _isHost)
                 {
+                    if (!_connected && _blocked != null && now < _blockedUntil && SameEp(from, _blocked)) continue; // just refused
                     if (!_connected) { _peer = from; _connected = true; _lastHeard = now; events.Add(new NetEvent { Type = NetEventType.Connected }); }
                     if (SameEp(from, _peer)) RawSend(Header(K_ACCEPT, 0, 0));
                     continue;
