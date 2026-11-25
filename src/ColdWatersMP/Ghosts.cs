@@ -13,7 +13,7 @@ namespace ColdWatersMP
 {
     public static class Ghosts
     {
-        public const int Slots = 2;               // decoys that can run at the same time per side
+        public const int Slots = 5;               // decoys that can run at the same time per side
         const float ParkNm = 150f;                // dormant ghosts wait this far from the map centre (the map is about +-95 nm)
         const float QuietSeconds = 15f;           // silent while the decoy swims clear of the launcher
         const float FadeInSeconds = 20f, FadeOutSeconds = 30f;
