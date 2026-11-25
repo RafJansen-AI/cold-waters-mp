@@ -69,6 +69,15 @@ namespace ColdWatersMP
         readonly string _localName;
         readonly string _pluginVersion;
         readonly Dictionary<string, string> _fingerprint; // name -> hash
+        /// <summary>Session password ("" = none). Only a hash is sent; the host refuses a client whose hash differs.</summary>
+        public string Password = "";
+
+        static string PasswordHash(string pw)
+        {
+            if (string.IsNullOrEmpty(pw)) return "";
+            using (SHA256 sha = new SHA256Managed())
+                return Fingerprint.ToHex(sha.ComputeHash(Encoding.UTF8.GetBytes("cwmp-session:" + pw)));
+        }
         readonly List<NetEvent> _events = new List<NetEvent>();
         readonly Action<string> _log;
 
@@ -175,6 +184,7 @@ namespace ColdWatersMP
                 int m = System.Math.Min(4, Fingerprint.LocalDeviations.Count);
                 w.Write(Fingerprint.LocalDeviations.Count);
                 for (int i = 0; i < m; i++) w.Write(ShortName(Fingerprint.LocalDeviations[i]));
+                w.Write(PasswordHash(Password));
             }), true);
         }
 
@@ -202,7 +212,10 @@ namespace ColdWatersMP
                             int m = System.Math.Min(4, System.Math.Max(0, _theirDevCount));
                             for (int i = 0; i < m; i++) { string s = r.ReadString(); _theirDev.Add(s.Length > 80 ? s.Substring(0, 80) : s); }
                         }
-                        string problem = Compare(proto, ver, theirs);
+                        string theirPw = r.BaseStream.Position < r.BaseStream.Length ? r.ReadString() : "";
+                        string problem = theirPw != PasswordHash(Password)
+                            ? (string.IsNullOrEmpty(Password) ? "this host has no password; clear yours" : "wrong session password")
+                            : Compare(proto, ver, theirs);
                         if (problem != null)
                         {
                             _log("Rejecting " + name + ": " + problem);

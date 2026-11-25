@@ -39,6 +39,10 @@ The zip contains [BepInEx 5](https://github.com/BepInEx/BepInEx) (x86), already 
 
 **Playing over the internet with Tailscale:** both PCs must be in the same Tailscale network; having Tailscale installed is not enough. With two accounts, the host shares their machine with the other player in the Tailscale admin console (*Share*), or invites them into their network. `tailscale status` should list the other PC; the client then joins the host's `100.x.y.z` address.
 
+**Address with a port:** the client's address box takes `host` or `host:port`, for tunnels such as playit.gg that give their own port.
+
+**Session password (recommended with strangers):** type the same password on both sides; the host refuses anyone without it. Only a hash is sent, but the game traffic itself is not encrypted.
+
 **Disconnect** (or **Stop hosting**) in the window ends the connection; during a duel it asks for a second click.
 
 Host settings in the MULTIPLAYER window (Ctrl+F6): conditions (as the mission, random, or custom), starting range, pause, time compression, Reduced Visibility and neutral traffic.

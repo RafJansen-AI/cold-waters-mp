@@ -18,6 +18,7 @@ namespace ColdWatersMP
 
         ConfigEntry<string> _role, _hostAddress, _playerName, _fakeHash;
         ConfigEntry<int> _port;
+        ConfigEntry<string> _password;
         ConfigEntry<bool> _autoStart, _devKeys;
         ConfigEntry<float> _rangeMin, _rangeMax;
         ConfigEntry<bool> _windowed;
@@ -38,6 +39,7 @@ namespace ColdWatersMP
             _role = Config.Bind("Network", "Role", "Host", "Host or Client");
             _hostAddress = Config.Bind("Network", "HostAddress", "127.0.0.1", "Host IP or name (client only)");
             _port = Config.Bind("Network", "Port", 7777, "UDP port");
+            _password = Config.Bind("Network", "SessionPassword", "", "Optional: both players type the same password, or the host refuses the join");
             _autoStart = Config.Bind("Network", "AutoStart", false, "Host/join automatically at startup with the last role (otherwise use the MULTIPLAYER button)");
             _playerName = Config.Bind("Player", "Name", "Player", "Shown to your opponent");
             _devKeys = Config.Bind("Debug", "DevKeys", false, "Testing only: Ctrl+F7 teleport, Ctrl+F11 test chat, full overlay and FakeDllHash. Off in normal play (the teleport is a cheat).");
@@ -112,7 +114,15 @@ namespace ColdWatersMP
         {
             try
             {
-                if (_role.Value.Trim().ToLowerInvariant() == "client") _session.Join(_hostAddress.Value, _port.Value);
+                _session.Password = (_password.Value ?? "").Trim();
+                if (_role.Value.Trim().ToLowerInvariant() == "client")
+                {
+                    // "host" or "host:port" (tunnels such as playit.gg give their own port). One colon only, so IPv6 isn't split.
+                    string a = (_hostAddress.Value ?? "").Trim(); int port = _port.Value;
+                    int c = a.LastIndexOf(':'), p;
+                    if (c > 0 && a.IndexOf(':') == c && int.TryParse(a.Substring(c + 1), out p) && p > 0 && p < 65536) { port = p; a = a.Substring(0, c); }
+                    _session.Join(a, port);
+                }
                 else _session.Host(_port.Value);
             }
             catch (System.Exception ex) { Log("Session start failed: " + ex.Message); }
@@ -220,9 +230,14 @@ namespace ColdWatersMP
                 GUILayout.Label("Host address", GUILayout.Width(110));
                 _hostAddress.Value = GUILayout.TextField(_hostAddress.Value, 64, GUILayout.Width(200));
                 GUILayout.EndHorizontal();
-                GUILayout.Label("The host's LAN or VPN address (Tailscale, ZeroTier, Radmin VPN ...). The host sees it in this window.");
+                GUILayout.Label("The host's address, optionally with :port (LAN, VPN or tunnel address). The host sees it in this window.");
             }
             else GUILayout.Label("Your addresses (give one to the client): " + OwnAddresses());
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("Password", GUILayout.Width(110));
+            _password.Value = GUILayout.PasswordField(_password.Value ?? "", '*', 32, GUILayout.Width(200));
+            GUILayout.Label("optional, the same on both sides");
+            GUILayout.EndHorizontal();
             GUILayout.BeginHorizontal();
             SessionState stateAtLayout = _session.State; // fixed for this GUI event: the buttons below may change it
             if (stateAtLayout == SessionState.Idle || !Duel.InDuel) _confirmDisconnect = _confirmDisconnect && stateAtLayout != SessionState.Idle && Duel.InDuel;
