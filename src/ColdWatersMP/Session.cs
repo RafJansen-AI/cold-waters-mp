@@ -137,7 +137,7 @@ namespace ColdWatersMP
                         break;
                     case NetEventType.Data:
                         try { Handle(e.Payload); }
-                        catch (System.Exception ex) { _log("Ignored a malformed message from the other player (" + ex.GetType().Name + ")"); }
+                        catch (System.Exception ex) { _log("Ignored a message that could not be handled (" + ex.GetType().Name + ")"); _log("~" + ex); }
                         break;
                 }
             }

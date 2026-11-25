@@ -99,13 +99,13 @@ namespace ColdWatersMP
         public static void Read(BinaryReader r, bool keep)
         {
             int n = r.ReadInt32();
-            if (n < 0 || n > MaxNeutrals) throw new InvalidDataException("bad traffic list");
+            if (n < 0 || n > MaxNeutrals) throw new IOException("bad traffic list");
             List<Entry> l = new List<Entry>();
             int max = UIFunctions.globaluifunctions.database.databaseshipdata.Length;
             for (int i = 0; i < n; i++)
             {
                 Entry e = new Entry { Cls = r.ReadInt32(), Flag = r.ReadString() };
-                if (e.Cls >= 0 && e.Cls < max && (e.Flag.Length == 0 || e.Flag.StartsWith("flags/") || e.Flag.IndexOf("..") < 0)) l.Add(e);
+                if (e.Cls >= 0 && e.Cls < max && e.Flag.IndexOf("..") < 0) l.Add(e); // flags are Resources paths
             }
             if (!keep) return;
             _list.Clear(); _list.AddRange(l);
@@ -125,6 +125,13 @@ namespace ColdWatersMP
             d.wanderingNeutralsStartIndex = d.kmShipClasses.Length;
             d.neutralFlagsToSpawn = new List<Material>();
             d.neutralIDsToSpawn = new List<int>();
+            LevelLoadManager llm = UIFunctions.globaluifunctions.levelloadmanager;
+            if (_list.Count > 0 && llm != null && (llm.icePresent || llm.packIcePresent))
+            {
+                // As the game does: no traffic in ice. Both games work out the ice the same way from the host's conditions.
+                Duel.Log("Neutral traffic: none, the mission area has ice");
+                _list.Clear();
+            }
             int room = GameDataManager.maxShips - d.kmShipClasses.Length;
             int n = System.Math.Min(_list.Count, System.Math.Max(0, room));
             for (int i = 0; i < n; i++)
@@ -172,8 +179,27 @@ namespace ColdWatersMP
             _remote = new Remote[n];
             for (int i = 0; i < n; i++) _remote[i] = new Remote();
             if (n == 0) return;
-            if (!S.IsHost) for (int i = 0; i < n; i++) if (ev[Start + i] != null) Duel.AiOff(ev[Start + i]);
+            if (!S.IsHost) { for (int i = 0; i < n; i++) if (ev[Start + i] != null) Duel.AiOff(ev[Start + i]); }
+            else PlaceWhales(ev, n);
             Duel.Log("Neutral traffic in this duel: " + n + " (" + Describe() + ")" + (S.IsHost ? ", run by us" : ", run by the host"));
+        }
+
+        /// <summary>Host: the game only scatters civilian ships; whales would all start on the mission's enemy spot.
+        /// Put each one somewhere around the opponent instead, 1.5 to 7 nm away. The client gets the position with the first state.</summary>
+        static void PlaceWhales(Vessel[] ev, int n)
+        {
+            Vessel centre = Duel.Puppet != null ? Duel.Puppet : GameDataManager.playervesselsonlevel[0];
+            if (centre == null) return;
+            for (int i = 0; i < n; i++)
+            {
+                Vessel v = ev[Start + i];
+                if (v == null || v.databaseshipdata.shipType != "BIOLOGIC") continue;
+                float ang = Random.Range(0f, 360f), dist = Random.Range(40f, 190f);
+                Vector3 p = centre.transform.position + Quaternion.Euler(0f, ang, 0f) * Vector3.forward * dist;
+                p.y = v.transform.position.y;
+                v.transform.position = p;
+                v.transform.rotation = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f);
+            }
         }
 
         public static void Reset() { _remote = new Remote[0]; _hitNeutral.Clear(); }
@@ -245,9 +271,21 @@ namespace ColdWatersMP
         public static bool AllowHit(Compartment c, Collider other)
         {
             if (S == null || !S.IsHost) return other == null || other.GetComponent<Torpedo>() == null; // client: the host decides
-            Torpedo t = other != null ? other.GetComponent<Torpedo>() : null;
-            if (t != null && Weapons.IsPuppetTorpedo(t)) _hitNeutral.Add(t);
             return true;
+        }
+
+        /// <summary>Host, after the game handled the touch: an opponent torpedo copy that exploded on a neutral.</summary>
+        public static void AfterTouch(Compartment c, Collider other)
+        {
+            if (S == null || !S.IsHost || other == null || c == null || !IsNeutral(c.activeVessel)) return;
+            Torpedo t = other.GetComponent<Torpedo>();
+            if (t != null && t.destroyMe && Weapons.IsPuppetTorpedo(t)) _hitNeutral.Add(t);
+        }
+
+        /// <summary>Client: neutrals don't burn on their own here; the host's damage is applied as it comes.</summary>
+        public static bool SkipBurning(DamageSystem ds)
+        {
+            return Duel.InDuel && S != null && !S.IsHost && ds != null && IsNeutral(ds.parentVessel);
         }
 
         /// <summary>Host: did this opponent torpedo copy hit a neutral (not us)?</summary>
@@ -284,6 +322,18 @@ namespace ColdWatersMP
             }
             return true;
         }
+    }
+
+    [HarmonyPatch(typeof(Compartment), "OnTriggerEnter")]
+    static class Patch_Compartment_Neutral_Post
+    {
+        static void Postfix(Compartment __instance, Collider otherObject) { try { Ambient.AfterTouch(__instance, otherObject); } catch (System.Exception) { } }
+    }
+
+    [HarmonyPatch(typeof(DamageSystem), "CheckBurning")]
+    static class Patch_CheckBurning_Neutral
+    {
+        static bool Prefix(DamageSystem __instance) { return !Ambient.SkipBurning(__instance); }
     }
 
     [HarmonyPatch(typeof(LevelLoadData), "AssignNeutralVessels")]
