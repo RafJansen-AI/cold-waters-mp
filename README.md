@@ -16,7 +16,7 @@
 
 | | Version |
 |---|---|
-| Cold Waters | 1.15g. Tested on GOG; the Steam version should work but is untested. |
+| Cold Waters | 1.15g. Tested on GOG; Steam should work but is untested (a GOG and a Steam player have not played each other yet). |
 | DotMod | v0.4c, installed as DotMod describes (JSGME / DotModInstaller) |
 | A way to reach each other | Same LAN, or a VPN such as [Tailscale](https://tailscale.com), ZeroTier or Radmin VPN |
 
@@ -76,6 +76,10 @@ Get-FileHash .\ColdWatersMP-<version>.zip
 ```
 
 The source code is all here, so anyone can read what it does. Forks are welcome, but the licence requires a changed version to be plainly marked as changed and never passed off as the original.
+
+## Update
+
+Close the game, extract the new zip over the old files and overwrite everything. Your settings in `BepInEx\config\cwmp.cfg` are kept (the zip doesn't contain that file). Both players need the same version, or the join is refused with a message saying so.
 
 ## Uninstall
 

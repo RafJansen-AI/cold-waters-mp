@@ -160,6 +160,11 @@ function Do-Install {
     if ($halfDone) { $needDotMod = $true; Warn 'An earlier DotMod install by this setup did not finish: it will be completed now.' }
     elseif ($h -eq $DotModDllSha) { Good 'DotMod v0.4c is already installed: only Cold Waters MP will be added.' }
     elseif ($h -eq $CleanDllSha) { $needDotMod = $true; Say 'Clean Cold Waters 1.15g found: DotMod v0.4c will be installed first, then Cold Waters MP.' }
+    elseif ($Yes -or ((Read-Host ("Assembly-CSharp.dll is not the GOG 1.15g or DotMod v0.4c version this setup knows.`n" +
+            "A clean Steam copy may differ only in that file. DotMod replaces it, and the original is kept in $BackupDir.`n" +
+            "If you installed another mod, answer N. Continue with DotMod (Y/N)")) -match '^[Yy]')) {
+        $needDotMod = $true; Warn 'Unknown Assembly-CSharp.dll: it is backed up and DotMod v0.4c is installed over it.'
+    }
     else {
         Fail ("This Cold Waters is not a clean 1.15g or DotMod v0.4c install (Assembly-CSharp.dll is another version, so another mod or game version is installed).`n" +
             "Restore the game (GOG: Manage installation > Verify / Repair; Steam: Verify integrity of game files), then run this again.`nNothing was changed.")
