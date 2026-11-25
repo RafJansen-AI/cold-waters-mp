@@ -446,6 +446,7 @@ namespace ColdWatersMP
             if (prefab == null) return null;
             Transform pr = prefab.transform;
             GameObject root = new GameObject("CWMP_DecoyModel");
+            root.layer = prefab.layer;
             root.transform.localScale = pr.lossyScale;
             int parts = 0;
             foreach (MeshFilter mf in prefab.GetComponentsInChildren<MeshFilter>(true))
@@ -453,6 +454,7 @@ namespace ColdWatersMP
                 MeshRenderer src = mf.GetComponent<MeshRenderer>();
                 if (src == null || mf.sharedMesh == null) continue;
                 GameObject part = new GameObject("part");
+                part.layer = mf.gameObject.layer; // cameras cull by layer (above / below water)
                 part.transform.SetParent(root.transform, false);
                 part.transform.localPosition = pr.InverseTransformPoint(mf.transform.position);
                 part.transform.localRotation = Quaternion.Inverse(pr.rotation) * mf.transform.rotation;
@@ -488,6 +490,9 @@ namespace ColdWatersMP
                     if (r != null && !l.Hidden.Contains(r)) { l.Hidden.Add(r); l.Was.Add(r.enabled); }
             }
             foreach (Renderer r in l.Hidden) if (r != null && r.enabled) r.enabled = false;
+            // the game hides unclear or lost contacts by switching the mesh holder off: follow that
+            bool shown = v.meshHolder == null || v.meshHolder.gameObject.activeSelf;
+            if (l.Proxy.activeSelf != shown) l.Proxy.SetActive(shown);
             l.Proxy.transform.position = v.transform.position;
             l.Proxy.transform.rotation = v.transform.rotation;
         }
