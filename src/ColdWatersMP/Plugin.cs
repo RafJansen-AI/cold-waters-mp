@@ -11,6 +11,7 @@ namespace ColdWatersMP
     [BepInPlugin("cwmp", "Cold Waters MP", PluginVersion)]
     public class CwmpPlugin : BaseUnityPlugin
     {
+        public static string ModHash = "";
         public const string PluginVersion = "0.0.38";
 
         ConfigEntry<string> _role, _hostAddress, _playerName, _fakeHash;
@@ -64,6 +65,9 @@ namespace ColdWatersMP
             string dll = Path.Combine(Paths.ManagedPath, "Assembly-CSharp.dll");
             fp["Assembly-CSharp.dll"] = (!_devKeys.Value || string.IsNullOrEmpty(_fakeHash.Value)) ? Fingerprint.HashFile(dll) : _fakeHash.Value;
             Log("Fingerprint Assembly-CSharp.dll = " + fp["Assembly-CSharp.dll"]);
+            // The mod itself: two different builds (or a changed copy) are refused at connect.
+            try { ModHash = Fingerprint.HashFile(typeof(CwmpPlugin).Assembly.Location); fp["ColdWatersMP.dll"] = ModHash; Log("ColdWatersMP.dll SHA-256 " + ModHash); }
+            catch (System.Exception ex) { Log("Could not hash the mod DLL: " + ex.Message); }
             // Game data that changes combat: both players must have the same (edited weapons.txt etc. are refused).
             try
             {
@@ -189,6 +193,7 @@ namespace ColdWatersMP
         void ConnectionSection()
         {
             bool connected = _session.State == SessionState.Ready;
+            GUILayout.Label("Mod " + PluginVersion + (ModHash.Length >= 16 ? ", DLL SHA-256 " + ModHash.Substring(0, 16) + "... (compare with the release page)" : ""));
             GUILayout.Label("Status: " + _session.Status + (_session.Transport.IsConnected ? "  (" + _session.Transport.RttMs.ToString("F0") + " ms)" : ""));
             bool host = _role.Value.Trim().ToLowerInvariant() != "client";
             GUILayout.BeginHorizontal();

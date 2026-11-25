@@ -68,7 +68,7 @@ Each release lists the SHA-256 of the zip and of `ColdWatersMP.dll`. To check yo
 Get-FileHash .\ColdWatersMP-<version>.zip
 ```
 
-The source code is all here, so anyone can read what it does. Forks are welcome under the MIT licence, but please give them another name.
+The source code is all here, so anyone can read what it does. Forks are welcome, but the licence requires a changed version to be plainly marked as changed and never passed off as the original.
 
 ## Uninstall
 
@@ -87,7 +87,7 @@ This repository is source only: no game, DotMod or BepInEx files. The plugin is 
 
 ## Licence
 
-MIT (see [LICENSE](LICENSE)). BepInEx inside the release zip keeps its own licence (LGPL-2.1).
+zlib (see [LICENSE](LICENSE)): free to use and change; changed versions must be marked as such. BepInEx inside the release zip keeps its own licence (LGPL-2.1).
 
 ## Credits
 

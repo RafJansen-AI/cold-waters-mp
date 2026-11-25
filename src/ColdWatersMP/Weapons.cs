@@ -368,6 +368,7 @@ namespace ColdWatersMP
                 case G_TORP_SPAWN:
                 {
                     int id = r.ReadInt32(); int wid = r.ReadInt32(); Vector3 p = ReadV3(r); Vector3 e = ReadV3(r); bool payload = r.ReadBoolean(); int carrierId = r.ReadInt32();
+                    if (wid < 0 || wid >= UIFunctions.globaluifunctions.database.databaseweapondata.Length) { Duel.Log("Ignored a torpedo with an unknown weapon number " + wid); return true; }
                     Incoming carrier;
                     if (carrierId > 0 && _incoming.TryGetValue(carrierId, out carrier))
                     {
@@ -414,6 +415,7 @@ namespace ColdWatersMP
                 case G_NOISEMAKER:
                 {
                     int cm = r.ReadInt32(); Vector3 p = ReadV3(r); Vector3 e = ReadV3(r);
+                    if (cm < 0 || cm >= UIFunctions.globaluifunctions.database.databasecountermeasuredata.Length) { Duel.Log("Ignored an unknown countermeasure " + cm); return true; }
                     if (Duel.InDuel)
                     {
                         try { SpawnOpponentNoisemaker(cm, p, e); }

@@ -613,6 +613,7 @@ namespace ColdWatersMP
                 case G_SUBCHOICE:
                     OppClass = r.ReadInt32(); OppClassName = r.ReadString(); OppRpgSelfNoiseBonus = r.ReadSingle();
                     OppMissionId = r.ReadInt32();
+                    if (OppClass < 0 || OppClass >= UIFunctions.globaluifunctions.database.databaseshipdata.Length) { Log("Ignored an unknown sub class " + OppClass); OppClass = -1; OppClassName = ""; break; }
                     int ownMission = UIFunctions.globaluifunctions.missionmanager.currentMissionID;
                     if (OppMissionId != ownMission) Log("Note: opponent picked mission " + OppMissionId + ", you picked " + ownMission + "; the host's map and conditions are used.");
                     string mine = ClassName(OppClass);

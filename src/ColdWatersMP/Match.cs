@@ -280,6 +280,7 @@ namespace ColdWatersMP
             Snapshot s = Read(r);
             bool pause = r.ReadBoolean(), tc = r.ReadBoolean(), vis = r.ReadBoolean();
             int n = r.ReadInt32();
+            if (n < 0 || n > 512) throw new System.IO.InvalidDataException("bad match message");
             Dictionary<string, float> diff = new Dictionary<string, float>();
             for (int i = 0; i < n; i++) { string k = r.ReadString(); diff[k] = r.ReadSingle(); }
             Ambient.Read(r, !Duel.Session.IsHost);

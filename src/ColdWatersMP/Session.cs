@@ -136,7 +136,8 @@ namespace ColdWatersMP
                         Status = "Disconnected (" + e.Reason + ")" + (IsHost ? ", waiting for opponent" : "");
                         break;
                     case NetEventType.Data:
-                        Handle(e.Payload);
+                        try { Handle(e.Payload); }
+                        catch (System.Exception ex) { _log("Ignored a malformed message from the other player (" + ex.GetType().Name + ")"); }
                         break;
                 }
             }
@@ -185,6 +186,7 @@ namespace ColdWatersMP
                         string ver = r.ReadString();
                         string name = r.ReadString();
                         int n = r.ReadInt32();
+                        if (n < 0 || n > 256) return; // malformed
                         Dictionary<string, string> theirs = new Dictionary<string, string>();
                         for (int i = 0; i < n; i++) theirs[r.ReadString()] = r.ReadString();
                         string problem = Compare(proto, ver, theirs);
@@ -218,7 +220,7 @@ namespace ColdWatersMP
                         break;
                     }
                     case MsgType.Chat:
-                        _log("[" + PeerName + "] " + r.ReadString());
+                        { string c = r.ReadString(); if (c.Length > 200) c = c.Substring(0, 200); _log("[" + PeerName + "] " + c); }
                         break;
                     case MsgType.Game:
                         if (State == SessionState.Ready && GameMessage != null) GameMessage(r.ReadByte(), r);
@@ -231,7 +233,7 @@ namespace ColdWatersMP
         {
             if (proto != Fingerprint.ProtocolVersion)
                 return "protocol " + proto + " vs host " + Fingerprint.ProtocolVersion;
-            if (ver != _pluginVersion) return "mod version " + ver + " vs host " + _pluginVersion;
+            if (ver != _pluginVersion) return "mod version " + ver + " vs host " + _pluginVersion + " (both players need the same version from the GitHub Releases page)";
             List<string> diffs = new List<string>();
             foreach (KeyValuePair<string, string> kv in _fingerprint)
             {
@@ -241,7 +243,11 @@ namespace ColdWatersMP
             }
             foreach (string k in theirs.Keys)
                 if (!_fingerprint.ContainsKey(k)) diffs.Add(k + " only on the client");
-            return diffs.Count == 0 ? null : "build mismatch: " + string.Join(", ", diffs.ToArray());
+            if (diffs.Count == 0) return null;
+            string hint = diffs.Exists(d => d.StartsWith("ColdWatersMP.dll")) ? " - the mod DLLs differ: both download the same release from GitHub"
+                        : diffs.Exists(d => d.StartsWith("Assembly-CSharp")) ? " - the game or DotMod differs: same game version and DotMod v0.4c on both"
+                        : " - game data differs: put back edited files or reinstall DotMod on one side";
+            return "install mismatch: " + string.Join(", ", diffs.ToArray()) + hint;
         }
 
         static byte[] Build(MsgType t, Action<BinaryWriter> body)

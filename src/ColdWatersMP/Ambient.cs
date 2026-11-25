@@ -99,8 +99,14 @@ namespace ColdWatersMP
         public static void Read(BinaryReader r, bool keep)
         {
             int n = r.ReadInt32();
+            if (n < 0 || n > MaxNeutrals) throw new InvalidDataException("bad traffic list");
             List<Entry> l = new List<Entry>();
-            for (int i = 0; i < n; i++) l.Add(new Entry { Cls = r.ReadInt32(), Flag = r.ReadString() });
+            int max = UIFunctions.globaluifunctions.database.databaseshipdata.Length;
+            for (int i = 0; i < n; i++)
+            {
+                Entry e = new Entry { Cls = r.ReadInt32(), Flag = r.ReadString() };
+                if (e.Cls >= 0 && e.Cls < max && (e.Flag.Length == 0 || e.Flag.StartsWith("flags/") || e.Flag.IndexOf("..") < 0)) l.Add(e);
+            }
             if (!keep) return;
             _list.Clear(); _list.AddRange(l);
         }
@@ -258,6 +264,7 @@ namespace ColdWatersMP
             if (type == G_AMB_HIT) { Weapons.OwnTorpedoHitNeutral(r.ReadInt32()); return true; }
             if (type != G_AMB_STATE) return false;
             float t = r.ReadSingle(); int n = r.ReadInt32();
+            if (n < 0 || n > 16) return true; // malformed
             Vessel[] ev = GameDataManager.enemyvesselsonlevel;
             for (int i = 0; i < n; i++)
             {
