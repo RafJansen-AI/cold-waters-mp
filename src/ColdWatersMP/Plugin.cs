@@ -224,10 +224,11 @@ namespace ColdWatersMP
             }
             else GUILayout.Label("Your addresses (give one to the client): " + OwnAddresses());
             GUILayout.BeginHorizontal();
+            SessionState stateAtLayout = _session.State; // fixed for this GUI event: the buttons below may change it
+            if (stateAtLayout == SessionState.Idle || !Duel.InDuel) _confirmDisconnect = _confirmDisconnect && stateAtLayout != SessionState.Idle && Duel.InDuel;
             if (GUILayout.Button(connected ? "Reconnect" : (host ? "Start hosting" : "Join"), GUILayout.Width(150))) { _session.Leave(); StartSession(); }
-            if (_session.State == SessionState.Idle) _confirmDisconnect = false;
-            string dl = _confirmDisconnect ? "Sure? Ends the duel" : (host ? "Stop hosting" : "Disconnect");
-            if (_session.State != SessionState.Idle && GUILayout.Button(dl, GUILayout.Width(150)))
+            string dl = _confirmDisconnect ? "Sure? Ends the duel" : (_session.IsHost ? "Stop hosting" : "Disconnect");
+            if (stateAtLayout != SessionState.Idle && GUILayout.Button(dl, GUILayout.Width(150)))
             {
                 if (Duel.InDuel && !_confirmDisconnect) _confirmDisconnect = true; // mid-duel: second click
                 else
@@ -237,7 +238,7 @@ namespace ColdWatersMP
                     Log("Connection closed by you" + (Duel.InDuel ? ". Leave the mission through Esc." : ""));
                 }
             }
-            if (GUILayout.Button("Close", GUILayout.Width(100))) _showSettings = false;
+            if (GUILayout.Button("Close", GUILayout.Width(100))) { _showSettings = false; _confirmDisconnect = false; }
             GUILayout.EndHorizontal();
             GUILayout.Label("To play: both connect here, then Single Mission. Pick any mission and your sub; the host's map, conditions and difficulty are used.");
             GUILayout.Space(6);
