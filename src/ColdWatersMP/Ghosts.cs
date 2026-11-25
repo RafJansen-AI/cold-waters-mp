@@ -128,7 +128,10 @@ namespace ColdWatersMP
             float ydsPerSec = Mathf.Max(1f, wd.runSpeed) * 2025.37f / 3600f;
             float run = wd.rangeInYards > 0f ? wd.rangeInYards / ydsPerSec : 1200f;
             g.TorpId = torpId; g.T = t; g.Start = Time.time; g.Until = Time.time + run + 10f; g.FadeOutStart = -1f;
-            g.Noise = Duel.LastPuppetNoise;
+            // Sound like the launcher would at the decoy's speed: the hull's noise without the launcher's own speed
+            // (and cavitation), plus the game's per-knot noise at the decoy's run speed.
+            float perKnot = UIFunctions.globaluifunctions.playerfunctions.sensormanager.targetNoisePerKnot;
+            g.Noise = Duel.LastPuppetNoise - Duel.LastPuppetSpeedNoise + Mathf.Max(0f, wd.runSpeed) * perKnot;
             g.Knots = wd.runSpeed; g.Wd = wd; g.Towed = Duel.OppTowed;
             g.LastPos = t.transform.position; g.Vel = Vector3.zero;
             Follow(g, t.transform.position, t.transform.eulerAngles.y);

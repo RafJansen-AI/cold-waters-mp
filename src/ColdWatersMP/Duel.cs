@@ -712,6 +712,8 @@ namespace ColdWatersMP
         /// <summary>The puppet or one of the decoy ghosts: network-driven, AI off.</summary>
         public static bool IsRemote(Vessel v) { return IsPuppet(v) || Ghosts.IsGhost(v); }
         public static float LastPuppetNoise = 100f;
+        /// <summary>The speed and cavitation part of LastPuppetNoise, so a ghost can swap in its own speed.</summary>
+        public static float LastPuppetSpeedNoise;
     }
 
     // ---------- Harmony patches ----------
@@ -797,6 +799,8 @@ namespace ColdWatersMP
                 if (hull - o / 4f < o) hull -= o / 4f;
             }
             Duel.LastPuppetNoise = hull;
+            Duel.LastPuppetSpeedNoise = Mathf.Abs(activeVessel.vesselmovement.shipSpeed.z) * 10f * __instance.targetNoisePerKnot
+                + (activeVessel.vesselmovement.isCavitating ? __instance.noiseFromCavitation : 0f);
             // A pinging player is at least as loud as their sonar's output (player rule, not the AI's +output/4).
             int sid = activeVessel.databaseshipdata.activeSonarID;
             if (Duel.OppActiveSonar && sid >= 0)
