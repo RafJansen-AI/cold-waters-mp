@@ -39,3 +39,28 @@ namespace ColdWatersMP
         }
     }
 }
+
+namespace ColdWatersMP
+{
+    /// <summary>Dev only (DevKeys): log every sonar check, to measure how often the own-noise label refreshes in single
+    /// player and in a duel.</summary>
+    [HarmonyPatch(typeof(SensorManager), "SonarCheck")]
+    static class Patch_SonarCheckTiming
+    {
+        static float _last = -1f;
+        static void Postfix(SensorManager __instance)
+        {
+            if (!CwmpPlugin.DevKeysOn) return;
+            try
+            {
+                Vessel own = GameDataManager.playervesselsonlevel != null && GameDataManager.playervesselsonlevel.Length > 0 ? GameDataManager.playervesselsonlevel[0] : null;
+                float now = Time.realtimeSinceStartup;
+                Duel.Log("~SonarCheck: real " + now.ToString("F2") + " (+" + (_last < 0f ? 0f : now - _last).ToString("F2") + " s), game " + Time.time.ToString("F2")
+                    + ", timeScale " + Time.timeScale.ToString("F2") + ", fixedDt " + Time.fixedDeltaTime.ToString("F3") + ", timer " + __instance.timer.ToString("F2")
+                    + ", own noise " + (own != null ? own.acoustics.currentNoise.ToString("F1") : "-") + ", duel " + Duel.InDuel);
+                _last = now;
+            }
+            catch (System.Exception) { }
+        }
+    }
+}
