@@ -46,7 +46,7 @@ namespace ColdWatersMP
         static readonly List<Chase> _chases = new List<Chase>();
         const float YdPerUnit = 75.13f, PassCloseYd = 100f, PassAwayYd = 60f, ChaseMemorySeconds = 10f;
 
-        static GameObject _decoyButton;
+        static GameObject _decoyButton, _decoyCaption;
         static bool _buttonMissingLogged;
 
         public static void Reset()
@@ -55,6 +55,7 @@ namespace ColdWatersMP
             _chases.Clear();
             _rng = new System.Random();
             if (_decoyButton != null) _decoyButton.SetActive(false);
+            if (_decoyCaption != null) _decoyCaption.SetActive(false);
         }
 
         /// <summary>AfterLoadLevel: enemies 1.. are the ghosts. Turn their AI off and send them away.</summary>
@@ -417,6 +418,7 @@ namespace ColdWatersMP
                 }
             }
             if (_decoyButton != null) _decoyButton.SetActive(true);
+            if (_decoyCaption != null) _decoyCaption.SetActive(true);
         }
 
         static bool Under(Transform t, List<Transform> roots, Transform stop)
@@ -488,20 +490,29 @@ namespace ColdWatersMP
             foreach (Text tx in go.GetComponentsInChildren<Text>(true)) if (!Under(tx.transform, dropped, go.transform)) { label = tx; break; }
             if (label == null)
             {
-                // Icon button with its caption elsewhere: give ours its own caption.
-                Text any = null;
-                foreach (Text tx in mark.GetComponentsInChildren<Text>(true)) { any = tx; break; }
-                if (any != null)
+                // Icon button whose caption is a separate Text (PREV / MARK / NEXT under the row): copy NEXT's caption one step right.
+                Text cap0 = null; float shift = step == float.MaxValue ? 40f : step;
+                int levels = 0;
+                for (Transform p = parent; p != null && cap0 == null && levels < 4; p = p.parent, levels++)
                 {
-                    GameObject cap = (GameObject)Object.Instantiate(any.gameObject);
-                    cap.transform.SetParent(go.transform, false);
-                    RectTransform cr = cap.GetComponent<RectTransform>();
-                    RectTransform mr2 = mark.GetComponent<RectTransform>();
-                    if (cr != null) cr.anchoredPosition = new Vector2(0f, mr2 != null ? -mr2.rect.height * 0.8f : 0f); // under the icon, like the others
-                    TextLocaliser cl = cap.GetComponent<TextLocaliser>(); if (cl != null) cl.enabled = false;
-                    label = cap.GetComponent<Text>();
-                    if (label != null) label.text = "DECOY";
+                    foreach (Text tx in p.GetComponentsInChildren<Text>(true))
+                        if (tx.text != null && tx.text.Trim().ToUpperInvariant() == "NEXT") { cap0 = tx; break; }
                 }
+                if (cap0 != null)
+                {
+                    GameObject cap = (GameObject)Object.Instantiate(cap0.gameObject);
+                    cap.name = "CWMP_DecoyCaption";
+                    cap.transform.SetParent(cap0.transform.parent, false);
+                    RectTransform cr = cap.GetComponent<RectTransform>(), c0 = cap0.GetComponent<RectTransform>();
+                    if (cr != null && c0 != null) cr.anchoredPosition = new Vector2(c0.anchoredPosition.x + shift, c0.anchoredPosition.y);
+                    foreach (TextLocaliser cl in cap.GetComponentsInChildren<TextLocaliser>(true)) cl.enabled = false;
+                    label = cap.GetComponent<Text>();
+                    string t0 = cap0.text.Trim();
+                    if (label != null) label.text = t0 == t0.ToLowerInvariant() ? "decoy" : (t0.Substring(1) == t0.Substring(1).ToLowerInvariant() ? "Decoy" : "DECOY");
+                    _decoyCaption = cap;
+                    Duel.Log("~Code book: DECOY caption copied from \"" + cap0.text + "\"");
+                }
+                else Duel.Log("~Code book: no NEXT caption found, DECOY button has no caption");
             }
             else
             {
