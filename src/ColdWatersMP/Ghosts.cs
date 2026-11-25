@@ -46,7 +46,8 @@ namespace ColdWatersMP
         static readonly List<Chase> _chases = new List<Chase>();
         const float YdPerUnit = 75.13f, PassCloseYd = 100f, PassAwayYd = 60f, ChaseMemorySeconds = 10f;
 
-        static GameObject _decoyButton, _decoyCaption;
+        static GameObject _decoyButton;
+        static Text _decoyLabel;
         static bool _buttonMissingLogged;
 
         public static void Reset()
@@ -55,7 +56,6 @@ namespace ColdWatersMP
             _chases.Clear();
             _rng = new System.Random();
             if (_decoyButton != null) _decoyButton.SetActive(false);
-            if (_decoyCaption != null) _decoyCaption.SetActive(false);
         }
 
         /// <summary>AfterLoadLevel: enemies 1.. are the ghosts. Turn their AI off and send them away.</summary>
@@ -185,6 +185,7 @@ namespace ColdWatersMP
             }
             CheckPasses();
             KeepMarks();
+            UpdateButtonLabel();
         }
 
         static void CheckPasses()
@@ -391,142 +392,108 @@ namespace ColdWatersMP
 
         // ---------- DECOY button in the code book (signature panel), a copy of its MARK button ----------
 
+        // A small text button "DECOY" on the ID book page, left of the four class icons (own / merchant / warship / sub)
+        // in its top-right corner. Only the button's own box takes clicks.
         static void SetupButton()
         {
             if (_decoyButton == null)
             {
-                Button mark = null;
+                List<Button> classButtons = new List<Button>();
                 foreach (Button b in Resources.FindObjectsOfTypeAll<Button>())
                 {
                     if (b == null || !b.gameObject.scene.IsValid()) continue; // skip prefab assets
                     if (b.gameObject.name == "CWMP_DecoyButton") { _decoyButton = b.gameObject; break; }
                     int n = b.onClick.GetPersistentEventCount();
-                    for (int k = 0; k < n; k++)
-                    {
-                        string m = b.onClick.GetPersistentMethodName(k);
-                        if (m == "SigAnalysisSet" || m == "ContactClassifiedManuallyByPlayer") mark = b;
-                    }
+                    for (int k = 0; k < n; k++) if (b.onClick.GetPersistentMethodName(k) == "GoToProfile") { classButtons.Add(b); break; }
                 }
                 if (_decoyButton == null)
                 {
-                    if (mark == null)
+                    if (classButtons.Count == 0)
                     {
-                        if (!_buttonMissingLogged) { _buttonMissingLogged = true; Duel.Log("~Code book: MARK button not found, no DECOY button (Ctrl+F5 still works)"); }
+                        if (!_buttonMissingLogged) { _buttonMissingLogged = true; Duel.Log("~ID book: class icons not found, no DECOY button (Ctrl+F5 still works)"); }
                         return;
                     }
-                    _decoyButton = CloneButton(mark);
+                    _decoyButton = MakeButton(classButtons);
                 }
             }
             if (_decoyButton != null) _decoyButton.SetActive(true);
-            if (_decoyCaption != null) _decoyCaption.SetActive(true);
         }
 
-        static bool Under(Transform t, List<Transform> roots, Transform stop)
+        static GameObject MakeButton(List<Button> classButtons)
         {
-            for (Transform p = t; p != null && p != stop; p = p.parent) if (roots.Contains(p)) return true;
-            return false;
-        }
-
-        static GameObject CloneButton(Button mark)
-        {
-            Transform parent = mark.transform.parent;
+            // leftmost class icon in the row, and the spacing between icons
+            Button left = null; RectTransform lr = null; float step = float.MaxValue;
             string layout = "";
-            if (parent != null)
-                foreach (Button b in parent.GetComponentsInChildren<Button>(true))
-                {
-                    RectTransform br = b.GetComponent<RectTransform>();
-                    Text bt = b.GetComponentInChildren<Text>();
-                    layout += " " + b.gameObject.name + "\"" + (bt != null ? bt.text : "") + "\"" + (br != null ? "@" + br.anchoredPosition.x.ToString("F0") + "," + br.anchoredPosition.y.ToString("F0") : "");
-                }
-            Duel.Log("~Code book buttons:" + layout);
-
-            // PREV and NEXT are children of MARK (positions relative to it). Measure them, and drop their copies.
-            float childRight = 0f, step = float.MaxValue;
-            foreach (Button cb in mark.GetComponentsInChildren<Button>(true))
+            foreach (Button b in classButtons)
             {
-                if (cb == mark) continue;
-                RectTransform cr0 = cb.GetComponent<RectTransform>();
-                if (cr0 == null) continue;
-                float x = cr0.anchoredPosition.x;
-                if (x > childRight) childRight = x;
-                if (Mathf.Abs(x) > 1f && Mathf.Abs(x) < step) step = Mathf.Abs(x);
+                RectTransform r = b.GetComponent<RectTransform>();
+                if (r == null) continue;
+                layout += " " + b.gameObject.name + "@" + r.anchoredPosition.x.ToString("F0") + "," + r.anchoredPosition.y.ToString("F0") + " " + r.rect.width.ToString("F0") + "x" + r.rect.height.ToString("F0");
+                if (left == null || r.anchoredPosition.x < lr.anchoredPosition.x) { left = b; lr = r; }
             }
+            if (left == null) return null;
+            foreach (Button b in classButtons)
+            {
+                RectTransform r = b.GetComponent<RectTransform>();
+                if (r == null || b.transform.parent != left.transform.parent) continue;
+                float gap = Mathf.Abs(r.anchoredPosition.x - lr.anchoredPosition.x);
+                if (gap > 1f && gap < step) step = gap;
+            }
+            Duel.Log("~ID book class icons:" + layout);
 
-            GameObject go = (GameObject)Object.Instantiate(mark.gameObject);
+            GameObject go = (GameObject)Object.Instantiate(left.gameObject);
             go.name = "CWMP_DecoyButton";
-            go.transform.SetParent(parent, false);
-            List<Transform> dropped = new List<Transform>();
-            foreach (Button cb in go.GetComponentsInChildren<Button>(true))
-                if (cb.gameObject != go) { cb.gameObject.SetActive(false); dropped.Add(cb.transform); }
-            if (parent != null && parent.GetComponent<LayoutGroup>() != null)
-                go.transform.SetSiblingIndex(mark.transform.GetSiblingIndex() + 1);
-            else
+            go.transform.SetParent(left.transform.parent, false);
+            for (int i = 0; i < go.transform.childCount; i++) go.transform.GetChild(i).gameObject.SetActive(false); // no icon children
+            Image img = go.GetComponent<Image>();
+            if (img != null) { Color c = img.color; c.a = 0f; img.color = c; } // invisible, but it is the click box
+            const float w = 52f;
+            float h = lr.rect.height > 4f ? lr.rect.height : 18f;
+            RectTransform rt = go.GetComponent<RectTransform>();
+            rt.sizeDelta = new Vector2(w, h);
+            float gapPx = step < float.MaxValue ? step - lr.rect.width : 6f;
+            if (gapPx < 4f) gapPx = 4f;
+            rt.anchoredPosition = new Vector2(lr.anchoredPosition.x - lr.rect.width / 2f - gapPx - w / 2f, lr.anchoredPosition.y);
+
+            // the caption: a copy of one of the page's own texts, so font and colour match
+            Text src = null;
+            foreach (InGameReference r in Resources.FindObjectsOfTypeAll<InGameReference>())
+                if (r != null && r.gameObject.scene.IsValid() && r.ingameReferenceTexts != null && r.ingameReferenceTexts.Length > 0) { src = r.ingameReferenceTexts[0]; break; }
+            if (src != null)
             {
-                RectTransform rt = go.GetComponent<RectTransform>(), mr = mark.GetComponent<RectTransform>();
-                if (rt != null && mr != null)
+                GameObject cap = (GameObject)Object.Instantiate(src.gameObject);
+                cap.name = "CWMP_DecoyCaption";
+                cap.transform.SetParent(go.transform, false);
+                cap.SetActive(true);
+                for (int i = 0; i < cap.transform.childCount; i++) cap.transform.GetChild(i).gameObject.SetActive(false);
+                foreach (TextLocaliser tl in cap.GetComponentsInChildren<TextLocaliser>(true)) tl.enabled = false;
+                RectTransform cr = cap.GetComponent<RectTransform>();
+                if (cr != null) { cr.anchoredPosition = new Vector2(0f, 0f); cr.sizeDelta = new Vector2(w, h); }
+                _decoyLabel = cap.GetComponent<Text>();
+                if (_decoyLabel != null)
                 {
-                    if (step == float.MaxValue)
-                    {
-                        // no child buttons: look for siblings in MARK's row
-                        float right = mr.anchoredPosition.x;
-                        foreach (Button b in parent.GetComponentsInChildren<Button>(true))
-                        {
-                            if (b == mark || b.gameObject == go || b.transform.parent != parent) continue;
-                            RectTransform br = b.GetComponent<RectTransform>();
-                            if (br == null || Mathf.Abs(br.anchoredPosition.y - mr.anchoredPosition.y) > 2f) continue;
-                            float gap = Mathf.Abs(br.anchoredPosition.x - mr.anchoredPosition.x);
-                            if (gap > 1f && gap < step) step = gap;
-                            if (br.anchoredPosition.x > right) right = br.anchoredPosition.x;
-                        }
-                        if (step == float.MaxValue) step = mr.rect.height * 1.2f;
-                        childRight = right - mr.anchoredPosition.x;
-                    }
-                    rt.anchoredPosition = new Vector2(mr.anchoredPosition.x + childRight + step, mr.anchoredPosition.y); // one step right of NEXT
-                    Duel.Log("~Code book: DECOY button at " + rt.anchoredPosition.x.ToString("F0") + "," + rt.anchoredPosition.y.ToString("F0") + " (MARK at " + mr.anchoredPosition.x.ToString("F0") + "," + mr.anchoredPosition.y.ToString("F0") + ")");
+                    _decoyLabel.text = "DECOY";
+                    _decoyLabel.alignment = TextAnchor.MiddleCenter;
+                    _decoyLabel.horizontalOverflow = HorizontalWrapMode.Overflow;
+                    _decoyLabel.raycastTarget = false;
                 }
             }
-            foreach (TextLocaliser loc in go.GetComponentsInChildren<TextLocaliser>(true)) loc.enabled = false;
-            Text label = null;
-            foreach (Text tx in go.GetComponentsInChildren<Text>(true)) if (!Under(tx.transform, dropped, go.transform)) { label = tx; break; }
-            if (label == null)
-            {
-                // Icon button whose caption is a separate Text (PREV / MARK / NEXT under the row): copy NEXT's caption one step right.
-                Text cap0 = null; float shift = step == float.MaxValue ? 40f : step;
-                int levels = 0;
-                for (Transform p = parent; p != null && cap0 == null && levels < 4; p = p.parent, levels++)
-                {
-                    foreach (Text tx in p.GetComponentsInChildren<Text>(true))
-                        if (tx.text != null && tx.text.Trim().ToUpperInvariant() == "NEXT") { cap0 = tx; break; }
-                }
-                if (cap0 != null)
-                {
-                    GameObject cap = (GameObject)Object.Instantiate(cap0.gameObject);
-                    cap.name = "CWMP_DecoyCaption";
-                    cap.transform.SetParent(cap0.transform.parent, false);
-                    RectTransform cr = cap.GetComponent<RectTransform>(), c0 = cap0.GetComponent<RectTransform>();
-                    if (cr != null && c0 != null) cr.anchoredPosition = new Vector2(c0.anchoredPosition.x + shift, c0.anchoredPosition.y);
-                    foreach (TextLocaliser cl in cap.GetComponentsInChildren<TextLocaliser>(true)) cl.enabled = false;
-                    label = cap.GetComponent<Text>();
-                    string t0 = cap0.text.Trim();
-                    if (label != null) label.text = t0 == t0.ToLowerInvariant() ? "decoy" : (t0.Substring(1) == t0.Substring(1).ToLowerInvariant() ? "Decoy" : "DECOY");
-                    _decoyCaption = cap;
-                    Duel.Log("~Code book: DECOY caption copied from \"" + cap0.text + "\"");
-                }
-                else Duel.Log("~Code book: no NEXT caption found, DECOY button has no caption");
-            }
-            else
-            {
-                Text mt = null;
-                foreach (Text tx in mark.GetComponentsInChildren<Text>(true)) if (tx.text != null && tx.text.Length > 0) { mt = tx; break; }
-                string t = mt != null ? mt.text : null;
-                label.text = (t != null && t.Length > 0 && t == t.ToLowerInvariant()) ? "decoy"
-                           : (t != null && t.Length > 1 && t.Substring(1) == t.Substring(1).ToLowerInvariant()) ? "Decoy" : "DECOY";
-            }
+            else Duel.Log("~ID book: no page text to copy, DECOY button has no caption");
+
             Button btn = go.GetComponent<Button>();
             btn.onClick = new Button.ButtonClickedEvent();
             btn.onClick.AddListener(new UnityAction(delegate { ToggleMarkCurrent(); }));
-            Duel.Log("Code book: DECOY button added (same as Ctrl+F5)");
+            Duel.Log("ID book: DECOY button added left of the class icons at " + rt.anchoredPosition.x.ToString("F0") + "," + rt.anchoredPosition.y.ToString("F0") + " (same as Ctrl+F5)");
             return go;
+        }
+
+        /// <summary>Show on the button whether the selected contact is tagged.</summary>
+        static void UpdateButtonLabel()
+        {
+            if (_decoyLabel == null) return;
+            int i = UIFunctions.globaluifunctions.playerfunctions.currentTargetIndex;
+            string want = (_marked.Contains(i) || _uncloaked.Contains(i)) ? "[DECOY]" : "DECOY";
+            if (_decoyLabel.text != want) _decoyLabel.text = want;
         }
     }
 
