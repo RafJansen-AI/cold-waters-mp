@@ -27,7 +27,6 @@ namespace ColdWatersMP
             public float Start, Until, FadeOutStart = -1f;
             public float Noise;                    // the launcher's noise at launch
             public Vector3 LastPos, Vel;
-            public Sprite Icon;                    // the decoy's torpedo map icon, shown once it is uncloaked
         }
 
         static readonly List<Ghost> _ghosts = new List<Ghost>();
@@ -35,8 +34,10 @@ namespace ColdWatersMP
         static System.Random _rng = new System.Random();
         static Texture2D _ghostSig; static string _ghostSigFor;
         static readonly HashSet<int> _marked = new HashSet<int>();   // contacts the player tagged as DECOY: a note only, never verified
-        static readonly Dictionary<int, Sprite> _uncloaked = new Dictionary<int, Sprite>(); // ghosts our torpedo passed: shown as the decoy they are
-        const string MarkSuffix = " DECOY";
+        static readonly HashSet<int> _uncloaked = new HashSet<int>();  // ghosts our torpedo passed: confirmed decoys, can't be untagged
+        static readonly Dictionary<int, Sprite> _savedIcon = new Dictionary<int, Sprite>();
+        static readonly Dictionary<int, Quaternion> _savedRot = new Dictionary<int, Quaternion>();
+        const string NoteSuffix = " decoy?", ConfirmedSuffix = " DECOY";
         static readonly Color MarkColor = new Color(0.6f, 0.6f, 0.6f, 1f);
 
         // Our torpedoes that chase a decoy copy here: when one gets close and then opens again without a hit, it has
@@ -50,7 +51,7 @@ namespace ColdWatersMP
 
         public static void Reset()
         {
-            _ghosts.Clear(); _ghostSig = null; _ghostSigFor = null; _marked.Clear(); _uncloaked.Clear();
+            _ghosts.Clear(); _ghostSig = null; _ghostSigFor = null; _marked.Clear(); _uncloaked.Clear(); _savedIcon.Clear(); _savedRot.Clear();
             _chases.Clear();
             _rng = new System.Random();
             if (_decoyButton != null) _decoyButton.SetActive(false);
@@ -112,13 +113,11 @@ namespace ColdWatersMP
             // The copy itself stays a torpedo object (seekers here may chase it) but is silent and not drawn.
             foreach (AudioSource a in t.GetComponentsInChildren<AudioSource>(true)) a.enabled = false;
             foreach (Renderer r in t.GetComponentsInChildren<Renderer>(true)) r.enabled = false;
-            Sprite icon = (t.tacMapTorpedoIcon != null && t.tacMapTorpedoIcon.shipDisplayIcon != null) ? t.tacMapTorpedoIcon.shipDisplayIcon.sprite : null;
             if (t.tacMapTorpedoIcon != null) t.tacMapTorpedoIcon.gameObject.SetActive(false);
 
             Ghost g = null;
             foreach (Ghost x in _ghosts) if (x.TorpId < 0 && x.V != null) { g = x; break; }
             if (g == null) { Duel.Log("~Ghosts: no free ghost for decoy #" + torpId); return; }
-            g.Icon = icon;
             float ydsPerSec = Mathf.Max(1f, wd.runSpeed) * 2025.37f / 3600f;
             float run = wd.rangeInYards > 0f ? wd.rangeInYards / ydsPerSec : 1200f;
             g.TorpId = torpId; g.T = t; g.Start = Time.time; g.Until = Time.time + run + 10f; g.FadeOutStart = -1f;
@@ -175,9 +174,8 @@ namespace ColdWatersMP
                         Duel.Log("~Ghosts: ghost " + g.V.vesselListIndex + " gone");
                         g.TorpId = -1; Park(g.V);
                         int gi = g.V.vesselListIndex;
-                        bool wasUncloaked = _uncloaked.Remove(gi);
-                        bool had = _marked.Remove(gi) | wasUncloaked;
-                        if (had) Unmark(gi, wasUncloaked); // a reused ghost must not come back tagged
+                        bool had = _marked.Remove(gi) | _uncloaked.Remove(gi);
+                        if (had) Unmark(gi); // a reused ghost must not come back tagged
                         continue;
                     }
                     g.LastPos += g.Vel * Time.deltaTime; // keeps going straight while it fades
@@ -203,7 +201,7 @@ namespace ColdWatersMP
                         foreach (Chase x in _chases) if (x.Torp == t && x.G == g) { c = x; break; }
                         if (c == null)
                         {
-                            if (!chasing || _uncloaked.ContainsKey(g.V.vesselListIndex)) continue;
+                            if (!chasing || _uncloaked.Contains(g.V.vesselListIndex)) continue;
                             c = new Chase { Torp = t, G = g }; _chases.Add(c);
                         }
                         if (chasing) c.LastChase = Time.time;
@@ -219,9 +217,8 @@ namespace ColdWatersMP
         static void Passed(Torpedo t, Ghost g, float minYd)
         {
             int i = g.V.vesselListIndex;
-            if (!_uncloaked.ContainsKey(i))
+            if (_uncloaked.Add(i))
             {
-                _uncloaked[i] = g.Icon;
                 Duel.Log("Our torpedo passed a decoy (closest " + minYd.ToString("F0") + " yd), contact uncloaked as DECOY");
                 SensorManager sm = UIFunctions.globaluifunctions.playerfunctions.sensormanager;
                 string name = i < sm.initialDetectedByPlayerName.Length ? UIFunctions.globaluifunctions.playerfunctions.GetBasicContactName(sm.initialDetectedByPlayerName[i]) : "Contact";
@@ -314,19 +311,39 @@ namespace ColdWatersMP
             PlayerFunctions pf = UIFunctions.globaluifunctions.playerfunctions;
             int i = pf.currentTargetIndex;
             if (i < 0) return;
-            if (_marked.Remove(i)) { if (!_uncloaked.ContainsKey(i)) Unmark(i); Duel.Log("Contact no longer tagged as decoy"); }
-            else { _marked.Add(i); Duel.Log("Contact tagged as DECOY (your note only)"); }
+            if (_uncloaked.Contains(i)) { Duel.Log("Contact is a confirmed decoy, the tag stays"); return; }
+            if (_marked.Remove(i)) { Unmark(i); Duel.Log("Contact no longer tagged as decoy"); }
+            else { _marked.Add(i); Duel.Log("Contact tagged as decoy? (your note only)"); }
             KeepMarks();
         }
 
-        static string Strip(string t) { return t != null && t.EndsWith(MarkSuffix) ? t.Substring(0, t.Length - MarkSuffix.Length) : t; }
+        static string Strip(string t)
+        {
+            if (t == null) return t;
+            if (t.EndsWith(NoteSuffix)) return t.Substring(0, t.Length - NoteSuffix.Length);
+            if (t.EndsWith(ConfirmedSuffix)) return t.Substring(0, t.Length - ConfirmedSuffix.Length);
+            if (t.EndsWith(NoteSuffix.ToUpperInvariant())) return t.Substring(0, t.Length - NoteSuffix.Length);
+            return t;
+        }
 
-        static void Unmark(int i) { Unmark(i, false); }
+        static string WithSuffix(string t, string suffix) { return t == null || t.EndsWith(suffix) ? t : Strip(t) + suffix; }
 
-        static void Unmark(int i, bool resetIcon)
+        static Sprite TorpedoSprite()
+        {
+            TacticalMap tm = UIFunctions.globaluifunctions.playerfunctions.sensormanager.tacticalmap;
+            if (tm == null || tm.torpedoMapContactObject == null) return null;
+            MapContact mc = tm.torpedoMapContactObject.GetComponent<MapContact>();
+            return mc != null && mc.shipDisplayIcon != null ? mc.shipDisplayIcon.sprite : null;
+        }
+
+        /// <summary>Back to the game's own look: name, colour, and the icon the contact had before the tag.</summary>
+        static void Unmark(int i)
         {
             PlayerFunctions pf = UIFunctions.globaluifunctions.playerfunctions;
             MapContact[] mcs = pf.sensormanager.tacticalmap.mapContact;
+            Sprite sp; Quaternion rot;
+            bool hadIcon = _savedIcon.TryGetValue(i, out sp); _savedIcon.Remove(i);
+            bool hadRot = _savedRot.TryGetValue(i, out rot); _savedRot.Remove(i);
             if (i >= mcs.Length || mcs[i] == null) return;
             MapContact mc = mcs[i];
             mc.contactText.text = Strip(mc.contactText.text);
@@ -334,35 +351,40 @@ namespace ColdWatersMP
             if (pf.currentTargetIndex == i && pf.contactDataName != null) pf.contactDataName.text = Strip(pf.contactDataName.text);
             Color c = pf.sensormanager.GetContactColor(i);
             mc.shipDisplayIcon.color = c; mc.contactText.color = c;
-            // put the class icon back (the game sets it the same way when it classifies)
-            if (!resetIcon) return; // only an uncloaked contact had its icon changed
-            SensorManager sm = pf.sensormanager;
-            mc.shipDisplayIcon.transform.rotation = Quaternion.identity;
-            if (sm.classifiedByPlayer[i]) mc.shipDisplayIcon.sprite = sm.sonarPaintImages[sm.shipTypes[i]];
-            else mc.shipDisplayIcon.sprite = sm.sonarPaintImages[0];
+            if (hadIcon) mc.shipDisplayIcon.sprite = sp;
+            if (hadRot) mc.shipDisplayIcon.transform.rotation = rot;
         }
 
-        /// <summary>The game rewrites contact names and colours now and then; put the DECOY look back each frame.</summary>
         static readonly List<int> _lookIdx = new List<int>();
 
+        /// <summary>The game rewrites contact names, colours and icons now and then; put the decoy look back each frame.
+        /// A note and a confirmed decoy look alike (grey, torpedo icon) except for the label: "decoy?" vs "DECOY".</summary>
         static void KeepMarks()
         {
             if (_marked.Count == 0 && _uncloaked.Count == 0) return;
             PlayerFunctions pf = UIFunctions.globaluifunctions.playerfunctions;
             MapContact[] mcs = pf.sensormanager.tacticalmap.mapContact;
-            _lookIdx.Clear(); _lookIdx.AddRange(_marked);
-            foreach (int k in _uncloaked.Keys) if (!_marked.Contains(k)) _lookIdx.Add(k);
+            Sprite torp = TorpedoSprite();
+            _lookIdx.Clear(); _lookIdx.AddRange(_uncloaked);
+            foreach (int k in _marked) if (!_uncloaked.Contains(k)) _lookIdx.Add(k);
             foreach (int i in _lookIdx)
             {
                 if (i >= mcs.Length || mcs[i] == null) continue;
                 MapContact mc = mcs[i];
-                if (!mc.contactText.text.EndsWith(MarkSuffix)) mc.contactText.text += MarkSuffix;
-                if (mc.contactTextShort != null && !mc.contactTextShort.EndsWith(MarkSuffix)) mc.contactTextShort += MarkSuffix;
-                if (pf.currentTargetIndex == i && pf.contactDataName != null && !pf.contactDataName.text.EndsWith(MarkSuffix)) pf.contactDataName.text += MarkSuffix;
-                if (mc.shipDisplayIcon != null && mc.shipDisplayIcon.color != MarkColor) mc.shipDisplayIcon.color = MarkColor;
+                string suffix = _uncloaked.Contains(i) ? ConfirmedSuffix : NoteSuffix;
+                mc.contactText.text = WithSuffix(mc.contactText.text, suffix);
+                mc.contactTextShort = WithSuffix(mc.contactTextShort, suffix);
+                if (pf.currentTargetIndex == i && pf.contactDataName != null) pf.contactDataName.text = WithSuffix(pf.contactDataName.text, suffix.ToUpperInvariant());
                 if (mc.contactText.color != MarkColor) mc.contactText.color = MarkColor;
-                Sprite icon;
-                if (_uncloaked.TryGetValue(i, out icon) && icon != null && mc.shipDisplayIcon != null && mc.shipDisplayIcon.sprite != icon) mc.shipDisplayIcon.sprite = icon;
+                Image im = mc.shipDisplayIcon;
+                if (im == null) continue;
+                if (im.color != MarkColor) im.color = MarkColor;
+                if (torp != null && im.sprite != torp)
+                {
+                    _savedIcon[i] = im.sprite; // the game's latest icon for this contact (it may have changed since the tag)
+                    if (!_savedRot.ContainsKey(i)) _savedRot[i] = im.transform.rotation;
+                    im.sprite = torp;
+                }
             }
         }
 
