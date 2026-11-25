@@ -55,7 +55,6 @@ The game's own F-keys are not changed.
 
 - Only 1v1, only submarines, no aircraft.
 - Decoys don't explode when a torpedo reaches them. This is how Cold Waters and DotMod treat decoys.
-- Neutral ships react only to the host's sub.
 - Your opponent sees only your player name (set it in `BepInEx\config\cwmp.cfg`, default "Player").
 
 ## Safe download
