@@ -58,6 +58,18 @@ The game's own F-keys are not changed.
 - Neutral ships react only to the host's sub.
 - Your opponent sees only your player name (set it in `BepInEx\config\cwmp.cfg`, default "Player").
 
+## Safe download
+
+The mod is a DLL that runs inside your game with your rights, like any mod. Only download it from **this repository's [Releases](../../releases) page**. Copies elsewhere, or "improved" versions under the same name, are not ours.
+
+Each release lists the SHA-256 of the zip and of `ColdWatersMP.dll`. To check yours, run this in PowerShell in the folder where you saved it and compare:
+
+```
+Get-FileHash .\ColdWatersMP-<version>.zip
+```
+
+The source code is all here, so anyone can read what it does. Forks are welcome under the MIT licence, but please give them another name.
+
 ## Uninstall
 
 Delete `winhttp.dll`, `doorstop_config.ini`, `.doorstop_version` and the `BepInEx` folder from the Cold Waters folder.
@@ -72,6 +84,10 @@ Delete `winhttp.dll`, `doorstop_config.ini`, `.doorstop_version` and the `BepInE
 ## For developers
 
 This repository is source only: no game, DotMod or BepInEx files. The plugin is C# 5 / .NET 3.5 with Harmony. Build with `src/ColdWatersMP/build.cmd` against your own game's `Managed` folder and BepInEx. Notes on the game's code are in `docs/`. `package/` holds the files that go into the release zip next to the DLL.
+
+## Licence
+
+MIT (see [LICENSE](LICENSE)). BepInEx inside the release zip keeps its own licence (LGPL-2.1).
 
 ## Credits
 
