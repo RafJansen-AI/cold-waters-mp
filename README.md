@@ -2,7 +2,7 @@
 
 **1v1 submarine duels for Cold Waters.** Two players, each in their own sub, hunting each other in the same ocean. It is a mod on top of [DotMod](https://github.com/DotModGroup/ColdWaters-DotMod), loaded with BepInEx.
 
-> Status: **early test version.** It works end to end, but expect rough edges. Bug reports are welcome (see [Troubleshooting](#troubleshooting)).
+> Status: **early test version.** It works end to end (tested GOG to GOG over LAN, Radmin VPN and Tailscale), but expect rough edges. Bug reports are welcome (see [Troubleshooting](#troubleshooting)).
 
 ## What you get
 
@@ -18,11 +18,15 @@
 |---|---|
 | Cold Waters | 1.15g. Tested on GOG; Steam should work but is untested (a GOG and a Steam player have not played each other yet). |
 | DotMod | v0.4c, installed as DotMod describes (JSGME / DotModInstaller) |
-| A way to reach each other | Same LAN, or a VPN such as [Tailscale](https://tailscale.com), ZeroTier or Radmin VPN |
+| A way to reach each other | Same LAN, or a VPN such as [Radmin VPN](https://www.radmin-vpn.com) (easiest), [Tailscale](https://tailscale.com) or ZeroTier |
 
 Both players need the same game version, the same DotMod and the same mod version.
 
-## Install (about 2 minutes)
+## Install
+
+**Easiest, from a clean game (DotMod included):** download `ColdWatersMP-Setup-<version>.zip` from [Releases](../../releases), extract it anywhere and double-click `Install.cmd`. It finds your Cold Waters folder, downloads DotMod v0.4c from the DotMod team's GitHub (about 740 MB, checked by SHA-256), installs it and then this mod. If DotMod is already installed, it only adds the mod. `Uninstall.cmd` puts back exactly what was there before.
+
+**Manual, if you already have DotMod (about 2 minutes):**
 
 1. Install Cold Waters and DotMod, and start the game once to check that DotMod works.
 2. Download `ColdWatersMP-<version>.zip` from [Releases](../../releases).
@@ -31,13 +35,17 @@ Both players need the same game version, the same DotMod and the same mod versio
 
 The zip contains [BepInEx 5](https://github.com/BepInEx/BepInEx) (x86), already set up for Cold Waters, plus the mod. No game file is changed.
 
+**Check your DotMod data:** both players' DotMod files must match. `check-dotmod.ps1` (in the setup zip and in `tools/`) compares yours with the official v0.4c files and lists any difference. With JSGME, disabling and re-enabling DotMod usually fixes it.
+
 ## Play
 
 1. **Host:** MULTIPLAYER, choose **Host**, then **Start hosting**. The window shows your addresses; give the right one to your opponent (your VPN address if you use one). The first time, Windows asks whether Cold Waters may use the network: allow it. The host needs incoming **UDP port 7777**.
 2. **Client:** MULTIPLAYER, choose **Client**, type the host's address, then **Join**. The status line says *Ready* when you are connected.
 3. Both players open **Single Mission**, pick a mission and a sub, and start. The host's mission and conditions are used. Each player waits at battle stations until the other is ready.
 
-**Playing over the internet with Tailscale:** both PCs must be in the same Tailscale network; having Tailscale installed is not enough. With two accounts, the host shares their machine with the other player in the Tailscale admin console (*Share*), or invites them into their network. `tailscale status` should list the other PC; the client then joins the host's `100.x.y.z` address.
+**Playing over the internet (Radmin VPN, easiest):** both players install the free [Radmin VPN](https://www.radmin-vpn.com). The host chooses *Network > Create new network* with a name and a password and gives both to the other player, who chooses *Network > Join existing network*. In the MULTIPLAYER window the client then joins the host's Radmin address (`26.x.y.z`, shown in Radmin next to the host's name). Leave the network when you're done: everyone in a VPN network can reach your PC, not just the game, so only share it with people you play with.
+
+**Tailscale** works too: both PCs must be in the same Tailscale network; having Tailscale installed is not enough. The host shares their machine in the Tailscale admin console (*Share*) or invites the other player, who then joins the host's `100.x.y.z` address.
 
 **Address with a port:** the client's address box takes `host` or `host:port`, for tunnels such as playit.gg that give their own port.
 
@@ -83,7 +91,7 @@ Close the game, extract the new zip over the old files and overwrite everything.
 
 ## Uninstall
 
-Delete `winhttp.dll`, `doorstop_config.ini`, `.doorstop_version` and the `BepInEx` folder from the Cold Waters folder.
+If you used the setup, run `Uninstall.cmd`. Otherwise delete `winhttp.dll`, `doorstop_config.ini`, `.doorstop_version` and the `BepInEx` folder from the Cold Waters folder.
 
 ## Troubleshooting
 

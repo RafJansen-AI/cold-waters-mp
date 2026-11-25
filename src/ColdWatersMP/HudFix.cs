@@ -25,8 +25,22 @@ namespace ColdWatersMP
             catch (System.Exception) { }
         }
 
+        static string Where(HelmManager h)
+        {
+            Transform t = h.helmToolbars;
+            return "toolbars parent " + (t.parent != null ? t.parent.name : "none") + (t.parent == h.helmmanagerAnchor ? " (anchor)" : "")
+                + ", local y " + t.localPosition.y.ToString("F1");
+        }
+
         static void Postfix(bool __state)
         {
+            try
+            {
+                HelmManager h = UIFunctions.globaluifunctions.playerfunctions.helmmanager;
+                if (h == null || h.helmToolbars == null) return;
+                Duel.Log("~HUD build: was on anchor " + __state + "; now " + Where(h) + "; anchor " + (h.helmmanagerAnchor != null ? h.helmmanagerAnchor.name : "none"));
+            }
+            catch (System.Exception) { }
             if (!__state) return;
             try
             {
@@ -34,7 +48,7 @@ namespace ColdWatersMP
                 if (h.helmToolbars.parent == h.helmmanagerAnchor) return; // built correctly
                 h.helmToolbars.SetParent(h.helmmanagerAnchor, true); // same as the game's SetParent(x): keep world position
                 h.helmToolbars.localPosition += new Vector3(0f, 232.5f, 0f);
-                Duel.Log("~HUD fix: helm toolbars put back on their anchor (DotMod BuildHUD flip)");
+                Duel.Log("~HUD fix: helm toolbars put back on their anchor (DotMod BuildHUD flip); now " + Where(h));
             }
             catch (System.Exception ex) { Duel.Log("~HUD fix failed: " + ex.Message); }
         }
