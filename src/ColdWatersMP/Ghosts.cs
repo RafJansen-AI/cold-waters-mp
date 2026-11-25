@@ -38,10 +38,9 @@ namespace ColdWatersMP
         static readonly Color MarkColor = new Color(0.6f, 0.6f, 0.6f, 1f);
 
         // Our torpedoes that chase a decoy copy here: when one gets close and then opens again without a hit, it has
-        // passed the decoy. Its seeker then ignores that decoy and the crew reassesses the contact as a decoy.
+        // passed the decoy, and the crew reassesses the contact as a decoy. Only the label changes: seekers still go for it.
         class Chase { public Torpedo Torp; public Ghost G; public float MinYd = float.MaxValue; public float LastChase; }
         static readonly List<Chase> _chases = new List<Chase>();
-        static readonly Dictionary<Torpedo, List<Transform>> _ignore = new Dictionary<Torpedo, List<Transform>>();
         const float YdPerUnit = 75.13f, PassCloseYd = 100f, PassAwayYd = 60f, ChaseMemorySeconds = 10f;
 
         static GameObject _decoyButton;
@@ -50,7 +49,7 @@ namespace ColdWatersMP
         public static void Reset()
         {
             _ghosts.Clear(); _ghostSig = null; _ghostSigFor = null; _marked.Clear();
-            _chases.Clear(); _ignore.Clear();
+            _chases.Clear();
             _rng = new System.Random();
             if (_decoyButton != null) _decoyButton.SetActive(false);
         }
@@ -197,7 +196,7 @@ namespace ColdWatersMP
                         foreach (Chase x in _chases) if (x.Torp == t && x.G == g) { c = x; break; }
                         if (c == null)
                         {
-                            if (!chasing || Ignores(t, g.T.transform)) continue;
+                            if (!chasing || _marked.Contains(g.V.vesselListIndex)) continue;
                             c = new Chase { Torp = t, G = g }; _chases.Add(c);
                         }
                         if (chasing) c.LastChase = Time.time;
@@ -208,22 +207,12 @@ namespace ColdWatersMP
                 }
             // forget ended torpedoes, finished decoys and chases the seeker gave up on long ago
             _chases.RemoveAll(c => c.Torp == null || c.G.T == null || Time.time - c.LastChase > ChaseMemorySeconds);
-            if (_ignore.Count > 0)
-            {
-                List<Torpedo> dead = null;
-                foreach (Torpedo k in _ignore.Keys) if (k == null) { if (dead == null) dead = new List<Torpedo>(); dead.Add(k); }
-                if (dead != null) foreach (Torpedo k in dead) _ignore.Remove(k);
-            }
         }
 
         static void Passed(Torpedo t, Ghost g, float minYd)
         {
-            List<Transform> l;
-            if (!_ignore.TryGetValue(t, out l)) { l = new List<Transform>(); _ignore[t] = l; }
-            l.Add(g.T.transform);
-            if (t.targetTransform == g.T.transform) t.targetTransform = null; // search again: the real sub, if it is in the cone
             int i = g.V.vesselListIndex;
-            Duel.Log("Our torpedo passed a decoy (closest " + minYd.ToString("F0") + " yd), it now looks for the sub");
+            Duel.Log("Our torpedo passed a decoy (closest " + minYd.ToString("F0") + " yd), contact tagged DECOY");
             if (_marked.Add(i))
             {
                 SensorManager sm = UIFunctions.globaluifunctions.playerfunctions.sensormanager;
@@ -233,13 +222,6 @@ namespace ColdWatersMP
                 pf.PlayerMessage("Sonar: " + name + " reassessed as a DECOY, our torpedo passed it", col, "CWMP_Decoy");
             }
             KeepMarks();
-        }
-
-        public static bool Ignores(Torpedo t, Transform target)
-        {
-            if (_ignore.Count == 0 || t == null || target == null) return false;
-            List<Transform> l;
-            return _ignore.TryGetValue(t, out l) && l.Contains(target);
         }
 
         /// <summary>GetVesselNoiseLevel postfix for ghosts: silent while dormant, else the launcher's noise with a fade.</summary>
@@ -470,17 +452,6 @@ namespace ColdWatersMP
     static class Patch_SetTorpedoTargetsList
     {
         static void Postfix(Torpedo __instance) { Ghosts.RemoveFromTargets(__instance.targetsList); }
-    }
-
-    [HarmonyPatch(typeof(Torpedo), "CheckWithinSensorAngles")]
-    static class Patch_CheckWithinSensorAngles
-    {
-        // A torpedo that already passed a decoy no longer takes it as a target.
-        static bool Prefix(Torpedo __instance, Transform targetTransform, ref bool __result)
-        {
-            if (!Ghosts.Ignores(__instance, targetTransform)) return true;
-            __result = false; return false;
-        }
     }
 
     [HarmonyPatch(typeof(PlayerFunctions), "SetContactProfileSprite")]
