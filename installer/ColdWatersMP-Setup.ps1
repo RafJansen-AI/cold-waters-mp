@@ -6,7 +6,8 @@
 param(
     [string]$GameDir = "",
     [switch]$Uninstall,
-    [switch]$Yes          # don't ask for confirmation (for testing)
+    [switch]$Yes,         # don't ask any question (for testing)
+    [switch]$FolderOk     # the folder was already confirmed (set by the restart as administrator)
 )
 
 $ErrorActionPreference = 'Stop'
@@ -244,7 +245,7 @@ try {
     $script:ManifestPath = Join-Path $GameDir $Manifest
 
     Say "Cold Waters folder: $GameDir"
-    if (-not $Yes) {
+    if (-not ($Yes -or $FolderOk)) {
         $what = if ($Uninstall) { 'Uninstall DotMod (if this setup added it) and Cold Waters MP from this folder?' } else { 'Install into this folder?' }
         $a = Read-Host "$what (Y/N)"
         if ($a -notmatch '^[Yy]') {
@@ -255,8 +256,9 @@ try {
 
     if (-not (Test-Writable $GameDir)) {
         Warn 'This folder needs administrator rights to change. Windows will ask for permission.'
-        $a = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '-GameDir', "`"$GameDir`"", '-Yes')
+        $a = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '-GameDir', "`"$GameDir`"", '-FolderOk')
         if ($Uninstall) { $a += '-Uninstall' }
+        if ($Yes) { $a += '-Yes' }
         try { Start-Process -FilePath 'powershell.exe' -ArgumentList $a -Verb RunAs }
         catch { Fail 'Administrator permission was refused. Nothing was changed.' }
         Say 'Continuing in the new window.'
