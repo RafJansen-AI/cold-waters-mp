@@ -171,9 +171,10 @@ namespace ColdWatersMP
                 w.Write(_localName);
                 w.Write(_fingerprint.Count);
                 foreach (KeyValuePair<string, string> kv in _fingerprint) { w.Write(kv.Key); w.Write(kv.Value); }
-                int m = System.Math.Min(12, Fingerprint.LocalDeviations.Count);
+                // File names only, at most 4: Hello must stay one small UDP packet (Tailscale MTU 1280).
+                int m = System.Math.Min(4, Fingerprint.LocalDeviations.Count);
                 w.Write(Fingerprint.LocalDeviations.Count);
-                for (int i = 0; i < m; i++) w.Write(Fingerprint.LocalDeviations[i]);
+                for (int i = 0; i < m; i++) w.Write(ShortName(Fingerprint.LocalDeviations[i]));
             }), true);
         }
 
@@ -198,7 +199,7 @@ namespace ColdWatersMP
                         if (r.BaseStream.Position < r.BaseStream.Length)
                         {
                             _theirDevCount = r.ReadInt32();
-                            int m = System.Math.Min(12, System.Math.Max(0, _theirDevCount));
+                            int m = System.Math.Min(4, System.Math.Max(0, _theirDevCount));
                             for (int i = 0; i < m; i++) { string s = r.ReadString(); _theirDev.Add(s.Length > 80 ? s.Substring(0, 80) : s); }
                         }
                         string problem = Compare(proto, ver, theirs);
@@ -269,7 +270,16 @@ namespace ColdWatersMP
         {
             if (count <= 0) return " " + who + ": matches DotMod v0.4c.";
             int m = System.Math.Min(4, l.Count);
-            return " " + who + " differs from DotMod v0.4c in " + count + " file(s): " + string.Join(", ", l.GetRange(0, m).ToArray()) + (count > m ? ", ..." : "") + ".";
+            List<string> n = new List<string>();
+            for (int i = 0; i < m; i++) n.Add(ShortName(l[i]));
+            return " " + who + " differs from DotMod v0.4c in " + count + " file(s): " + string.Join(", ", n.ToArray()) + (count > m ? ", ..." : "") + ".";
+        }
+
+        /// <summary>"changed vessels/wp_ss_zulu.txt" -> "changed wp_ss_zulu.txt".</summary>
+        static string ShortName(string s)
+        {
+            int sp = s.IndexOf(' '), sl = s.LastIndexOf('/');
+            return (sp > 0 && sl > sp) ? s.Substring(0, sp + 1) + s.Substring(sl + 1) : s;
         }
 
         static byte[] Build(MsgType t, Action<BinaryWriter> body)
