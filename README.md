@@ -37,6 +37,10 @@ The zip contains [BepInEx 5](https://github.com/BepInEx/BepInEx) (x86), already 
 2. **Client:** MULTIPLAYER, choose **Client**, type the host's address, then **Join**. The status line says *Ready* when you are connected.
 3. Both players open **Single Mission**, pick a mission and a sub, and start. The host's mission and conditions are used. Each player waits at battle stations until the other is ready.
 
+**Playing over the internet with Tailscale:** both PCs must be in the same Tailscale network; having Tailscale installed is not enough. With two accounts, the host shares their machine with the other player in the Tailscale admin console (*Share*), or invites them into their network. `tailscale status` should list the other PC; the client then joins the host's `100.x.y.z` address.
+
+**Disconnect** (or **Stop hosting**) in the window ends the connection; during a duel it asks for a second click.
+
 Host settings in the MULTIPLAYER window (Ctrl+F6): conditions (as the mission, random, or custom), starting range, pause, time compression, Reduced Visibility and neutral traffic.
 
 ## Keys
