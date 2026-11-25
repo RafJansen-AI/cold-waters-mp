@@ -13,6 +13,7 @@ namespace ColdWatersMP
     {
         public static string ModHash = "";
         public static bool DevKeysOn;
+        bool _confirmDisconnect;
         public const string PluginVersion = "0.0.43";
 
         ConfigEntry<string> _role, _hostAddress, _playerName, _fakeHash;
@@ -224,10 +225,17 @@ namespace ColdWatersMP
             else GUILayout.Label("Your addresses (give one to the client): " + OwnAddresses());
             GUILayout.BeginHorizontal();
             if (GUILayout.Button(connected ? "Reconnect" : (host ? "Start hosting" : "Join"), GUILayout.Width(150))) { _session.Leave(); StartSession(); }
-            if (_session.State != SessionState.Idle && GUILayout.Button(host ? "Stop hosting" : "Disconnect", GUILayout.Width(120)))
+            if (_session.State == SessionState.Idle) _confirmDisconnect = false;
+            string dl = _confirmDisconnect ? "Sure? Ends the duel" : (host ? "Stop hosting" : "Disconnect");
+            if (_session.State != SessionState.Idle && GUILayout.Button(dl, GUILayout.Width(150)))
             {
-                _session.Leave(); // tells the other side, which sees "opponent left"
-                Log("Connection closed by you");
+                if (Duel.InDuel && !_confirmDisconnect) _confirmDisconnect = true; // mid-duel: second click
+                else
+                {
+                    _confirmDisconnect = false;
+                    _session.Leave(); // tells the other side, which sees "Disconnected (Peer left)"
+                    Log("Connection closed by you" + (Duel.InDuel ? ". Leave the mission through Esc." : ""));
+                }
             }
             if (GUILayout.Button("Close", GUILayout.Width(100))) _showSettings = false;
             GUILayout.EndHorizontal();
