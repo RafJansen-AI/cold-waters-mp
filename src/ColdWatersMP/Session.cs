@@ -206,7 +206,7 @@ namespace ColdWatersMP
                 {
                     case MsgType.Hello:
                     {
-                        if (!IsHost || _kickWhy != null) return; // a kick is pending: no more guesses on this connection
+                        if (!IsHost || _kickWhy != null || State != SessionState.Handshaking) return; // pending kick, or already Ready: ignore
                         int proto = r.ReadInt32();
                         string ver = r.ReadString();
                         string name = r.ReadString();
