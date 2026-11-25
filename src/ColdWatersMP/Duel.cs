@@ -377,7 +377,7 @@ namespace ColdWatersMP
         }
 
         /// <summary>Seabed depth in feet at a point (the game's own terrain probe); very large if there is no terrain.</summary>
-        static float SeabedFeet(Vector3 p)
+        public static float SeabedFeet(Vector3 p)
         {
             try { return UIFunctions.globaluifunctions.levelloadmanager.GetTerrainHeightAtPosition(p.x, p.z) * GameDataManager.unitsToFeet; }
             catch (System.Exception) { return 100000f; }

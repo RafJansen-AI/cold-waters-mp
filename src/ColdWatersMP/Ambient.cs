@@ -194,11 +194,21 @@ namespace ColdWatersMP
             {
                 Vessel v = ev[Start + i];
                 if (v == null || v.databaseshipdata.shipType != "BIOLOGIC") continue;
-                float ang = Random.Range(0f, 360f), dist = Random.Range(40f, 190f);
-                Vector3 p = centre.transform.position + Quaternion.Euler(0f, ang, 0f) * Vector3.forward * dist;
-                p.y = v.transform.position.y;
+                // Deep enough water (300 ft+), a few tries; whales swim near the surface (30-150 ft).
+                Vector3 p = v.transform.position; bool found = false;
+                for (int tries = 0; tries < 12 && !found; tries++)
+                {
+                    float ang = Random.Range(0f, 360f), dist = Random.Range(40f, 190f);
+                    Vector3 q = centre.transform.position + Quaternion.Euler(0f, ang, 0f) * Vector3.forward * dist;
+                    if (Duel.SeabedFeet(q) >= 300f) { p = q; found = true; }
+                }
+                if (!found) continue; // leave it where the game put it
+                p.y = 1000f - Random.Range(30f, 150f) / GameDataManager.unitsToFeet;
                 v.transform.position = p;
                 v.transform.rotation = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f);
+                // The AI steers back to its formation spot: move that too.
+                GameObject[] fp = UIFunctions.globaluifunctions.levelloadmanager.levelloaddata.formationPositions;
+                if (fp != null && Start + i < fp.Length && fp[Start + i] != null) { Vector3 f = p; f.y = 1000f; fp[Start + i].transform.position = f; }
             }
         }
 
