@@ -14,7 +14,8 @@ namespace ColdWatersMP
     {
         public const byte G_AMB_STATE = 18, G_AMB_HIT = 19;
         public enum Level { Off = 0, Random = 1, Low = 2, Medium = 3, High = 4 }
-        public static Level HostLevel = Level.Random;        // host setting (F6)
+        public static Level HostLevel = Level.Random;
+        public static bool ForceWhales;                     // dev setting        // host setting (F6)
         public static string LevelText(Level l)
         {
             switch (l)
@@ -85,7 +86,7 @@ namespace ColdWatersMP
             Group(d, Mathf.Max(fp.a, floor), d.neutralFishingIDs4, d.neutralFishingFlags4, mult);
             // Shuffle so a long list doesn't always cut the same groups, then leave room for whales.
             for (int i = _list.Count - 1; i > 0; i--) { int j = Random.Range(0, i + 1); Entry t = _list[i]; _list[i] = _list[j]; _list[j] = t; }
-            if (Random.value < d.whaleProbability * mult)
+            if (ForceWhales || Random.value < d.whaleProbability * mult)
             {
                 List<int> whales = new List<int>();
                 DatabaseShipData[] db = UIFunctions.globaluifunctions.database.databaseshipdata;
@@ -231,10 +232,11 @@ namespace ColdWatersMP
                     Vector3 q = centre.transform.position + Quaternion.Euler(0f, ang, 0f) * Vector3.forward * dist;
                     if (Duel.SeabedFeet(q) >= 300f) { p = q; found = true; }
                 }
-                if (!found) continue; // leave it where the game put it
+                if (!found) { Duel.Log("~Neutral traffic: no deep water found for whale " + v.vesselListIndex + ", left where the game put it"); continue; }
                 p.y = 1000f - Random.Range(30f, 150f) / GameDataManager.unitsToFeet;
                 v.transform.position = p;
                 v.transform.rotation = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f);
+                Duel.Log("~Neutral traffic: whale " + v.vesselListIndex + " placed " + Vector3.Distance(p, centre.transform.position).ToString("F0") + " units out, " + ((1000f - p.y) * GameDataManager.unitsToFeet).ToString("F0") + " ft deep");
                 // The AI steers back to its formation spot: move that too.
                 GameObject[] fp = UIFunctions.globaluifunctions.levelloadmanager.levelloaddata.formationPositions;
                 if (fp != null && Start + i < fp.Length && fp[Start + i] != null) { Vector3 f = p; f.y = 1000f; fp[Start + i].transform.position = f; }

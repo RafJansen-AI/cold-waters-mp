@@ -12,7 +12,7 @@ namespace ColdWatersMP
     public class CwmpPlugin : BaseUnityPlugin
     {
         public static string ModHash = "";
-        public const string PluginVersion = "0.0.40";
+        public const string PluginVersion = "0.0.41";
 
         ConfigEntry<string> _role, _hostAddress, _playerName, _fakeHash;
         ConfigEntry<int> _port;
@@ -39,6 +39,7 @@ namespace ColdWatersMP
             _autoStart = Config.Bind("Network", "AutoStart", false, "Host/join automatically at startup with the last role (otherwise use the MULTIPLAYER button)");
             _playerName = Config.Bind("Player", "Name", "Player", "Shown to your opponent");
             _devKeys = Config.Bind("Debug", "DevKeys", false, "Testing only: Ctrl+F7 teleport, Ctrl+F11 test chat, full overlay and FakeDllHash. Off in normal play (the teleport is a cheat).");
+            Ambient.ForceWhales = Config.Bind("Debug", "ForceWhales", false, "Testing only (needs DevKeys): every duel with traffic on gets whales").Value && _devKeys.Value;
             _fakeHash = Config.Bind("Debug", "FakeDllHash", "", "Testing only (needs DevKeys): pretend Assembly-CSharp.dll has this hash");
             _rangeMin = Config.Bind("Duel", "RangeMinNm", 4f, "Host: shortest starting distance (the actual one is random in the band)");
             _rangeMax = Config.Bind("Duel", "RangeMaxNm", 9f, "Host: longest starting distance");
