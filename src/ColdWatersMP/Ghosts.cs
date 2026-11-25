@@ -402,7 +402,7 @@ namespace ColdWatersMP
                 foreach (Button b in Resources.FindObjectsOfTypeAll<Button>())
                 {
                     if (b == null || !b.gameObject.scene.IsValid()) continue; // skip prefab assets
-                    if (b.gameObject.name == "CWMP_DecoyButton") { _decoyButton = b.gameObject; break; }
+                    if (b.gameObject.name == "CWMP_DecoyButton") { _decoyButton = b.gameObject; _decoyLabel = b.GetComponentInChildren<Text>(); break; }
                     int n = b.onClick.GetPersistentEventCount();
                     for (int k = 0; k < n; k++) if (b.onClick.GetPersistentMethodName(k) == "GoToProfile") { classButtons.Add(b); break; }
                 }
@@ -453,7 +453,9 @@ namespace ColdWatersMP
             rt.sizeDelta = new Vector2(w, h);
             float gapPx = step < float.MaxValue ? step - lr.rect.width : 6f;
             if (gapPx < 4f) gapPx = 4f;
-            rt.anchoredPosition = new Vector2(lr.anchoredPosition.x - lr.rect.width / 2f - gapPx - w / 2f, lr.anchoredPosition.y);
+            rt.pivot = lr.pivot;
+            float iconLeft = lr.anchoredPosition.x + lr.rect.xMin;   // icon's left edge, whatever its pivot
+            rt.anchoredPosition = new Vector2(iconLeft - gapPx - w * (1f - lr.pivot.x), lr.anchoredPosition.y);
 
             // the caption: a copy of one of the page's own texts, so font and colour match
             Text src = null;
@@ -468,7 +470,7 @@ namespace ColdWatersMP
                 for (int i = 0; i < cap.transform.childCount; i++) cap.transform.GetChild(i).gameObject.SetActive(false);
                 foreach (TextLocaliser tl in cap.GetComponentsInChildren<TextLocaliser>(true)) tl.enabled = false;
                 RectTransform cr = cap.GetComponent<RectTransform>();
-                if (cr != null) { cr.anchoredPosition = new Vector2(0f, 0f); cr.sizeDelta = new Vector2(w, h); }
+                if (cr != null) { cr.anchorMin = new Vector2(0f, 0f); cr.anchorMax = new Vector2(1f, 1f); cr.pivot = new Vector2(0.5f, 0.5f); cr.offsetMin = new Vector2(0f, 0f); cr.offsetMax = new Vector2(0f, 0f); } // fill the button
                 _decoyLabel = cap.GetComponent<Text>();
                 if (_decoyLabel != null)
                 {
@@ -476,6 +478,7 @@ namespace ColdWatersMP
                     _decoyLabel.alignment = TextAnchor.MiddleCenter;
                     _decoyLabel.horizontalOverflow = HorizontalWrapMode.Overflow;
                     _decoyLabel.raycastTarget = false;
+                    _decoyLabel.fontSize = 12;
                 }
             }
             else Duel.Log("~ID book: no page text to copy, DECOY button has no caption");
