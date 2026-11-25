@@ -169,7 +169,7 @@ namespace ColdWatersMP
                 Log("WARNING: previous duel was never closed; cleaning up before the new mission");
                 EnvSync.HostNewSeed();
             }
-            InDuel = false; Puppet = null; LocalInMission = false; _haveState = false; _stateCount = 0;
+            InDuel = false; Puppet = null; LocalInMission = false; PlacementApplied = false; _haveState = false; _stateCount = 0;
             _ownAtStations = false; _heldStations = null; // _oppAtStations may already be true: they can be quicker
             Weapons.Reset();
             if (!Active || !GameDataManager.missionMode) return true;
