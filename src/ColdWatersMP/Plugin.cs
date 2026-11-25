@@ -12,7 +12,7 @@ namespace ColdWatersMP
     public class CwmpPlugin : BaseUnityPlugin
     {
         public static string ModHash = "";
-        public const string PluginVersion = "0.0.41";
+        public const string PluginVersion = "0.0.42";
 
         ConfigEntry<string> _role, _hostAddress, _playerName, _fakeHash;
         ConfigEntry<int> _port;

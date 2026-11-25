@@ -86,7 +86,8 @@ namespace ColdWatersMP
             Group(d, Mathf.Max(fp.a, floor), d.neutralFishingIDs4, d.neutralFishingFlags4, mult);
             // Shuffle so a long list doesn't always cut the same groups, then leave room for whales.
             for (int i = _list.Count - 1; i > 0; i--) { int j = Random.Range(0, i + 1); Entry t = _list[i]; _list[i] = _list[j]; _list[j] = t; }
-            if (ForceWhales || Random.value < d.whaleProbability * mult)
+            float whaleX = lv == Level.High ? 4.5f : lv == Level.Medium ? 3f : 2f; // a bit more than the base game: 20/30/45% at its 0.1
+            if (ForceWhales || Random.value < d.whaleProbability * whaleX)
             {
                 List<int> whales = new List<int>();
                 DatabaseShipData[] db = UIFunctions.globaluifunctions.database.databaseshipdata;
