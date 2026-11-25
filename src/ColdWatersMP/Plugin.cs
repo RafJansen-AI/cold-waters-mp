@@ -224,6 +224,11 @@ namespace ColdWatersMP
             else GUILayout.Label("Your addresses (give one to the client): " + OwnAddresses());
             GUILayout.BeginHorizontal();
             if (GUILayout.Button(connected ? "Reconnect" : (host ? "Start hosting" : "Join"), GUILayout.Width(150))) { _session.Leave(); StartSession(); }
+            if (_session.State != SessionState.Idle && GUILayout.Button(host ? "Stop hosting" : "Disconnect", GUILayout.Width(120)))
+            {
+                _session.Leave(); // tells the other side, which sees "opponent left"
+                Log("Connection closed by you");
+            }
             if (GUILayout.Button("Close", GUILayout.Width(100))) _showSettings = false;
             GUILayout.EndHorizontal();
             GUILayout.Label("To play: both connect here, then Single Mission. Pick any mission and your sub; the host's map, conditions and difficulty are used.");

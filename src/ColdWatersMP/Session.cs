@@ -105,7 +105,7 @@ namespace ColdWatersMP
         {
             if (State == SessionState.Ready) SetReady(false);
             Transport.Stop();
-            State = SessionState.Idle; Status = "Idle"; PeerName = null;
+            State = SessionState.Idle; Status = "Not connected"; PeerName = null;
         }
 
         public void Update()
