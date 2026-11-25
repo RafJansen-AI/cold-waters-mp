@@ -18,7 +18,7 @@ namespace ColdWatersMP
             public Torpedo T;
             public Vector3 Pos0, Pos1; public Vector3 Euler1; public float T0, T1, Local1; public int Count;
             public float SpawnLocal; public float EndAt = -1f; public bool Homing; public bool Armed;
-            public float LastHoming = -100f; public bool HomingLogged; public bool DroppedPayload; public bool Payload;
+            public float LastHoming = -100f; public bool HomingLogged; public bool DroppedPayload; public bool Payload; public bool Decoy;
         }
 
         static int _nextId = 1;
@@ -56,7 +56,8 @@ namespace ColdWatersMP
             if (!Active || t == null) return;
             int id = _nextId++;
             _own[id] = t; _ownIds[t] = id;
-            if (!payload) OwnFired++;
+            bool decoy = Ghosts.IsDecoy(t.databaseweapondata);
+            if (!payload && !decoy) OwnFired++;
             int weaponId = t.databaseweapondata.weaponID;
             Vector3 pos = t.transform.position; Vector3 eul = t.transform.eulerAngles;
             int carrierId = -1;
@@ -119,8 +120,17 @@ namespace ColdWatersMP
             if (payload) t.isAirborne = true;
             _puppetTorps.Add(t);
             UIFunctions.globaluifunctions.playerfunctions.sensormanager.AddTorpedoToArray(t);
-            Incoming inc = new Incoming { T = t, Pos0 = pos, Pos1 = pos, Euler1 = eul, T0 = 0, T1 = 0, Local1 = Time.time, Count = 0, SpawnLocal = Time.time, Payload = payload };
+            bool decoy = Ghosts.IsDecoy(wd);
+            Incoming inc = new Incoming { T = t, Pos0 = pos, Pos1 = pos, Euler1 = eul, T0 = 0, T1 = 0, Local1 = Time.time, Count = 0, SpawnLocal = Time.time, Payload = payload, Decoy = decoy };
             _incoming[id] = inc;
+            if (decoy)
+            {
+                // Never shown as a weapon here: the opponent's decoy becomes a ghost sub.
+                Duel.Log("~Opponent launched decoy #" + id + " (" + wd.weaponName + ")");
+                try { Ghosts.OnDecoySpawned(id, t, wd); } catch (System.Exception ex) { Duel.Log("~Ghost start failed: " + ex.Message); }
+                return;
+            }
+            if (!payload) OppFired++;
             Duel.Log("Opponent fired torpedo #" + id + " (" + wd.weaponName + ")");
             if (payload) return; // dropped by a rocket far from the firer: no launch transient
             try { LaunchTransient(Duel.Puppet, wd); }
@@ -164,7 +174,7 @@ namespace ColdWatersMP
             if (t.destroyMe && t.damageDealt == 0)
             {
                 // Flagged without hitting anything (mission teardown, noisemaker, ...): not a hit.
-                Duel.Log("Opponent torpedo #" + id + " removed here without a hit");
+                Duel.Log((inc.Decoy ? "~" : "") + "Opponent torpedo #" + id + " removed here without a hit");
                 Kill(id, false);
                 return;
             }
@@ -180,13 +190,13 @@ namespace ColdWatersMP
             }
             if (inc.EndAt > 0f && Time.time > inc.EndAt)
             {
-                Duel.Log("Opponent torpedo #" + id + (inc.DroppedPayload ? " ended (carrier, payload was released)" : " ended (miss)"));
+                Duel.Log((inc.Decoy ? "~" : "") + "Opponent torpedo #" + id + (inc.DroppedPayload ? " ended (carrier, payload was released)" : " ended (miss)"));
                 Kill(id, false);
                 return;
             }
             // The game arms a torpedo's hit collider in Torpedo.FixedUpdate, which puppets skip.
             // Player torpedoes (navy 0 on the firer's side) arm after 5 s; do the same here.
-            if (!inc.Armed && Time.time - inc.SpawnLocal > 5f) Arm(t, inc);
+            if (!inc.Armed && !inc.Decoy && Time.time - inc.SpawnLocal > 5f) Arm(t, inc);
             if (inc.Payload && t.isAirborne && t.transform.position.y < 1000f) Splashdown(t);
             // "Torpedo in the water" callout: the game gives it when a torpedo targets the player's sub.
             Vessel own = GameDataManager.playervesselsonlevel[0];
@@ -282,6 +292,7 @@ namespace ColdWatersMP
             Incoming inc;
             if (!_incoming.TryGetValue(id, out inc)) return;
             _incoming.Remove(id);
+            if (inc.Decoy) Ghosts.OnDecoyEnded(id);
             if (inc.T != null)
             {
                 _puppetTorps.Remove(inc.T);
@@ -335,7 +346,6 @@ namespace ColdWatersMP
                 case G_TORP_SPAWN:
                 {
                     int id = r.ReadInt32(); int wid = r.ReadInt32(); Vector3 p = ReadV3(r); Vector3 e = ReadV3(r); bool payload = r.ReadBoolean(); int carrierId = r.ReadInt32();
-                    if (!payload) OppFired++;
                     Incoming carrier;
                     if (carrierId > 0 && _incoming.TryGetValue(carrierId, out carrier))
                     {
@@ -456,14 +466,14 @@ namespace ColdWatersMP
     {
         static bool Prefix(VesselAI __instance)
         {
-            return !(Duel.InDuel && Duel.Puppet != null && Duel.Puppet.vesselai == __instance);
+            return !(Duel.InDuel && ((Duel.Puppet != null && Duel.Puppet.vesselai == __instance) || Ghosts.IsGhostAI(__instance)));
         }
     }
 
     [HarmonyPatch(typeof(CombatAI), "CheckToAttackPlayer")]
     static class Patch_CheckToAttackPlayer
     {
-        static bool Prefix(Vessel activeVessel) { return !Duel.IsPuppet(activeVessel); }
+        static bool Prefix(Vessel activeVessel) { return !Duel.IsRemote(activeVessel); }
     }
 
     [HarmonyPatch(typeof(Torpedo), "InitialiseTorpedo")]
@@ -535,6 +545,7 @@ namespace ColdWatersMP
     {
         static bool Prefix(Compartment __instance, Collider otherObject)
         {
+            if (Ghosts.IsGhost(__instance.activeVessel)) return false; // ghosts can't be hit
             if (!Duel.IsPuppet(__instance.activeVessel)) return true;
             return otherObject == null || otherObject.GetComponent<Torpedo>() == null;
         }

@@ -11,7 +11,7 @@ namespace ColdWatersMP
     [BepInPlugin("cwmp", "Cold Waters MP", PluginVersion)]
     public class CwmpPlugin : BaseUnityPlugin
     {
-        public const string PluginVersion = "0.0.30";
+        public const string PluginVersion = "0.0.31";
 
         ConfigEntry<string> _role, _hostAddress, _playerName, _fakeHash;
         ConfigEntry<int> _port;
@@ -112,6 +112,7 @@ namespace ColdWatersMP
                 if (Input.GetKeyDown(KeyCode.F6)) _showSettings = !_showSettings;
                 if (Input.GetKeyDown(KeyCode.F12)) { _session.Leave(); StartSession(); }
                 if (Input.GetKeyDown(KeyCode.F7)) Duel.DebugTeleportNearOpponent(_teleportNm.Value);
+                if (Input.GetKeyDown(KeyCode.F5)) Ghosts.ToggleMarkCurrent(); // tag the selected contact as DECOY
                 if (Input.GetKeyDown(KeyCode.F8)) { Duel.ReleaseHeldLoad("Ctrl+F8 pressed"); Duel.ReleaseStations("Ctrl+F8 pressed"); }
                 if (Input.GetKeyDown(KeyCode.F11)) _session.SendChat("ping from " + _playerName.Value + " at " + Time.realtimeSinceStartup.ToString("F1") + "s");
             }

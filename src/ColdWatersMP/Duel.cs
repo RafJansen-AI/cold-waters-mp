@@ -208,13 +208,17 @@ namespace ColdWatersMP
             d.noOtherVessels = true;
             d.numberOfHelicopters = 0;
             d.numberOfAircraft = 0;
-            d.enemyShipBehaviour = new string[] { "DEFENSIVE" };
-            d.enemyUnitMissionCritical = new bool[1];
-            d.kmShipClasses = new int[] { UIFunctions.globaluifunctions.database.databaseshipdata[oppCls].shipID };
-            d.kmShipInstances = new int[1];
-            d.kmSlots = new int[1];
+            // Enemy 0 is the opponent; enemies 1.. are ghost subs for their decoys (same class, parked until used).
+            int n = 1 + Ghosts.Slots;
+            int sid = UIFunctions.globaluifunctions.database.databaseshipdata[oppCls].shipID;
+            d.enemyShipBehaviour = new string[n];
+            d.kmShipClasses = new int[n];
+            for (int i = 0; i < n; i++) { d.enemyShipBehaviour[i] = "DEFENSIVE"; d.kmShipClasses[i] = sid; }
+            d.enemyUnitMissionCritical = new bool[n];
+            d.kmShipInstances = new int[n];
+            d.kmSlots = new int[n];
             InDuel = true;
-            Log("Duel: mission rewritten to 1 enemy (" + ClassName(oppCls) + "), no traffic or aircraft");
+            Log("Duel: mission rewritten to 1 enemy (" + ClassName(oppCls) + ") + " + Ghosts.Slots + " decoy ghosts, no traffic or aircraft");
             SetIdBook(oppCls);
             return true;
         }
@@ -253,6 +257,7 @@ namespace ColdWatersMP
             }
             Puppet = GameDataManager.enemyvesselsonlevel[0];
             MakePuppet(Puppet);
+            try { Ghosts.Setup(); } catch (System.Exception ex) { Log("Ghost setup failed: " + ex.Message); }
             LocalInMission = true;
             _ownSunk = false; _oppSunk = false; Result = ""; _startTime = Time.time;
 
@@ -334,13 +339,18 @@ namespace ColdWatersMP
 
         static void MakePuppet(Vessel v)
         {
+            AiOff(v);
+            Log("Duel: enemy 0 (" + v.databaseshipdata.shipPrefabName + ") is now the opponent puppet, AI off");
+        }
+
+        public static void AiOff(Vessel v)
+        {
             if (v.vesselai != null) v.vesselai.enabled = false;
             foreach (MonoBehaviour mb in v.GetComponentsInChildren<MonoBehaviour>(true))
             {
                 string n = mb.GetType().Name;
                 if (n.StartsWith("Enemy_") || n == "VesselAI" || n == "VesselAINav") mb.enabled = false;
             }
-            Log("Duel: enemy 0 (" + v.databaseshipdata.shipPrefabName + ") is now the opponent puppet, AI off");
         }
 
         static void ApplyPlacement()
@@ -497,6 +507,7 @@ namespace ColdWatersMP
             _ownSunk = false; _oppSunk = false; // keep Result on the overlay until the next mission
             EnvSync.HostNewSeed(); // host: new ocean for the next mission (the client keeps the latest seed it got)
             Weapons.Reset();
+            Ghosts.Reset();
         }
 
         // ---------- per-frame ----------
@@ -516,6 +527,7 @@ namespace ColdWatersMP
                 SendOwnState(OwnVessel());
             }
             DrivePuppet();
+            try { Ghosts.Update(); } catch (System.Exception ex) { Log("~Ghost update failed: " + ex.Message); }
             Weapons.Update();
         }
 
@@ -650,6 +662,9 @@ namespace ColdWatersMP
         static Vector3 ReadV3(BinaryReader r) { return new Vector3(r.ReadSingle(), r.ReadSingle(), r.ReadSingle()); }
 
         public static bool IsPuppet(Vessel v) { return InDuel && v != null && v == Puppet; }
+        /// <summary>The puppet or one of the decoy ghosts: network-driven, AI off.</summary>
+        public static bool IsRemote(Vessel v) { return IsPuppet(v) || Ghosts.IsGhost(v); }
+        public static float LastPuppetNoise = 100f;
     }
 
     // ---------- Harmony patches ----------
@@ -699,7 +714,7 @@ namespace ColdWatersMP
     {
         static bool Prefix(VesselAI __instance)
         {
-            return !(Duel.InDuel && Duel.Puppet != null && Duel.Puppet.vesselai == __instance);
+            return !(Duel.InDuel && ((Duel.Puppet != null && Duel.Puppet.vesselai == __instance) || Ghosts.IsGhostAI(__instance)));
         }
     }
 
@@ -709,6 +724,7 @@ namespace ColdWatersMP
     {
         static void Postfix(SensorManager __instance, Vessel activeVessel, ref float __result)
         {
+            if (Duel.InDuel && Ghosts.Noise(activeVessel, ref __result)) return;
             if (!Duel.IsPuppet(activeVessel)) return;
             if (Duel.OppRunningSilent)
             {
@@ -725,6 +741,7 @@ namespace ColdWatersMP
                 float output = UIFunctions.globaluifunctions.database.databasesonardata[sid].sonarOutput;
                 if (__result < output) __result = output;
             }
+            Duel.LastPuppetNoise = __result;
         }
     }
 }
