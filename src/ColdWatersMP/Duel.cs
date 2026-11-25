@@ -734,6 +734,7 @@ namespace ColdWatersMP
             }
             // The player formula subtracts the RPG bonus before compression.
             if (__instance.passiveCompressionFactor != 0f) __result -= Duel.OppRpgSelfNoiseBonus / __instance.passiveCompressionFactor;
+            Duel.LastPuppetNoise = __result; // before the ping rule: a decoy copies the hull's noise, not the sonar's
             // A pinging player is at least as loud as their sonar's output (player rule, not the AI's +output/4).
             int sid = activeVessel.databaseshipdata.activeSonarID;
             if (Duel.OppActiveSonar && sid >= 0)
@@ -741,7 +742,6 @@ namespace ColdWatersMP
                 float output = UIFunctions.globaluifunctions.database.databasesonardata[sid].sonarOutput;
                 if (__result < output) __result = output;
             }
-            Duel.LastPuppetNoise = __result;
         }
     }
 }
