@@ -54,6 +54,7 @@ namespace ColdWatersMP
         // Local state
         public static bool InDuel;          // our mission was loaded as a duel
         public static bool LocalInMission;
+        public static bool PlacementApplied; // our duel placement was applied in this mission
         public static Vessel Puppet;
         static bool _haveState, _havePlacement;
         static int _placeSeq = -1; // client: the host match this placement belongs to
@@ -259,7 +260,7 @@ namespace ColdWatersMP
             MakePuppet(Puppet);
             try { Ghosts.Setup(); } catch (System.Exception ex) { Log("Ghost setup failed: " + ex.Message); }
             try { Ambient.Setup(); } catch (System.Exception ex) { Log("Neutral traffic setup failed: " + ex.Message); }
-            LocalInMission = true;
+            LocalInMission = true; PlacementApplied = false;
             _ownSunk = false; _oppSunk = false; Result = ""; _startTime = Time.time;
 
             Vessel own = GameDataManager.playervesselsonlevel[0];
@@ -373,6 +374,7 @@ namespace ColdWatersMP
             Teleport(own, _placeOwnPos, _placeOwnHeading); // host: same spot, new heading
             if (Puppet != null) Teleport(Puppet, _placeOppPos, _placeOppHeading);
             _havePlacement = false;
+            PlacementApplied = true;
             Log("Duel: placement applied");
         }
 
@@ -866,7 +868,7 @@ namespace ColdWatersMP
 
         static void Postfix(UnityEngine.Vector3 __state)
         {
-            if (!Duel.InDuel || float.IsNaN(__state.x)) return;
+            if (!Duel.InDuel || !Duel.PlacementApplied || float.IsNaN(__state.x)) return; // only a later call ("back to briefing")
             Vessel own = GameDataManager.playervesselsonlevel[0];
             if (own == null) return;
             float moved = UnityEngine.Vector3.Distance(own.transform.position, __state);
