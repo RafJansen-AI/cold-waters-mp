@@ -15,8 +15,8 @@ namespace ColdWatersMP
 
         ConfigEntry<string> _role, _hostAddress, _playerName, _fakeHash;
         ConfigEntry<int> _port;
-        ConfigEntry<bool> _autoStart;
-        ConfigEntry<float> _rangeNm, _rangeMin, _rangeMax;
+        ConfigEntry<bool> _autoStart, _devKeys;
+        ConfigEntry<float> _rangeMin, _rangeMax;
         ConfigEntry<bool> _windowed;
         ConfigEntry<float> _teleportNm;
         Session _session;
@@ -35,10 +35,10 @@ namespace ColdWatersMP
             _role = Config.Bind("Network", "Role", "Host", "Host or Client");
             _hostAddress = Config.Bind("Network", "HostAddress", "127.0.0.1", "Host IP or name (client only)");
             _port = Config.Bind("Network", "Port", 7777, "UDP port");
-            _autoStart = Config.Bind("Network", "AutoStart", true, "Host/join automatically at startup");
-            _playerName = Config.Bind("Player", "Name", System.Environment.UserName, "Shown to your opponent");
-            _fakeHash = Config.Bind("Debug", "FakeDllHash", "", "Testing only: pretend Assembly-CSharp.dll has this hash");
-            _rangeNm = Config.Bind("Duel", "RangeNm", 6f, "Old setting, not used any more (see RangeMinNm/RangeMaxNm)");
+            _autoStart = Config.Bind("Network", "AutoStart", false, "Host/join automatically at startup with the last role (otherwise use the MULTIPLAYER button)");
+            _playerName = Config.Bind("Player", "Name", "Player", "Shown to your opponent");
+            _devKeys = Config.Bind("Debug", "DevKeys", false, "Testing only: Ctrl+F7 teleport, Ctrl+F11 test chat, full overlay and FakeDllHash. Off in normal play (the teleport is a cheat).");
+            _fakeHash = Config.Bind("Debug", "FakeDllHash", "", "Testing only (needs DevKeys): pretend Assembly-CSharp.dll has this hash");
             _rangeMin = Config.Bind("Duel", "RangeMinNm", 4f, "Host: shortest starting distance (the actual one is random in the band)");
             _rangeMax = Config.Bind("Duel", "RangeMaxNm", 9f, "Host: longest starting distance");
             _teleportNm = Config.Bind("Debug", "TeleportNm", 1.5f, "Testing: F7 jumps your sub this far off the opponent's bow");
@@ -55,14 +55,14 @@ namespace ColdWatersMP
             LoadMatchSettings();
             _overlayCfg = Config.Bind("Display", "Overlay", 1, "0 = full (testing), 1 = compact one-liner, 2 = off. Ctrl+F9 cycles.");
             Duel.RangeMinNm = _rangeMin.Value; Duel.RangeMaxNm = _rangeMax.Value;
-            _overlayMode = Mathf.Clamp(_overlayCfg.Value, 0, 2);
+            _overlayMode = Mathf.Clamp(_overlayCfg.Value, _devKeys.Value ? 0 : 1, 2);
             _windowed = Config.Bind("Display", "ForceWindowed1280x720", false, "Testing only: force a 1280x720 window. Don't change the window size afterwards: the game keeps the HUD layout of the size it first had.");
             // Keep simulating and networking while the window is not focused (two copies on one PC, Alt+Tab).
             Application.runInBackground = true;
 
             Dictionary<string, string> fp = new Dictionary<string, string>();
             string dll = Path.Combine(Paths.ManagedPath, "Assembly-CSharp.dll");
-            fp["Assembly-CSharp.dll"] = string.IsNullOrEmpty(_fakeHash.Value) ? Fingerprint.HashFile(dll) : _fakeHash.Value;
+            fp["Assembly-CSharp.dll"] = (!_devKeys.Value || string.IsNullOrEmpty(_fakeHash.Value)) ? Fingerprint.HashFile(dll) : _fakeHash.Value;
             Log("Fingerprint Assembly-CSharp.dll = " + fp["Assembly-CSharp.dll"]);
             // Game data that changes combat: both players must have the same (edited weapons.txt etc. are refused).
             try
@@ -80,12 +80,12 @@ namespace ColdWatersMP
             catch (System.Exception ex) { Log("Game data fingerprint failed: " + ex.Message); }
 
             _session = new Session(new UdpTransport(), _playerName.Value, PluginVersion, fp, Log);
-            Duel.Init(_session, Log, _rangeNm.Value);
+            Duel.Init(_session, Log, 6f);
             MenuTab.OpenWindow = delegate { _showSettings = true; };
             new Harmony("cwmp").PatchAll(typeof(CwmpPlugin).Assembly);
             Log("Harmony patches applied");
             if (_autoStart.Value) StartSession();
-            Log("Cold Waters MP " + PluginVersion + " loaded. Ctrl+F6: match settings, Ctrl+F7: debug teleport near opponent, Ctrl+F8: start held mission, Ctrl+F9: overlay full/compact/off, Ctrl+F11: send test chat, Ctrl+F12: (re)start session");
+            Log("Cold Waters MP " + PluginVersion + " loaded. Ctrl+F5: tag contact as decoy, Ctrl+F6: multiplayer window, Ctrl+F8: start a held mission, Ctrl+F9: overlay, Ctrl+F12: reconnect" + (_devKeys.Value ? ". DEV KEYS ON: Ctrl+F7 teleport, Ctrl+F11 test chat" : ""));
         }
 
         void Start()
@@ -110,13 +110,13 @@ namespace ColdWatersMP
             bool ctrl = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
             if (ctrl)
             {
-                if (Input.GetKeyDown(KeyCode.F9)) { _overlayMode = (_overlayMode + 1) % 3; _overlayCfg.Value = _overlayMode; }
+                if (Input.GetKeyDown(KeyCode.F9)) { _overlayMode = (_overlayMode + 1) % 3; if (!_devKeys.Value && _overlayMode == 0) _overlayMode = 1; _overlayCfg.Value = _overlayMode; }
                 if (Input.GetKeyDown(KeyCode.F6)) _showSettings = !_showSettings;
                 if (Input.GetKeyDown(KeyCode.F12)) { _session.Leave(); StartSession(); }
-                if (Input.GetKeyDown(KeyCode.F7)) Duel.DebugTeleportNearOpponent(_teleportNm.Value);
+                if (_devKeys.Value && Input.GetKeyDown(KeyCode.F7)) Duel.DebugTeleportNearOpponent(_teleportNm.Value);
                 if (Input.GetKeyDown(KeyCode.F5)) Ghosts.ToggleMarkCurrent(); // tag the selected contact as DECOY
                 if (Input.GetKeyDown(KeyCode.F8)) { Duel.ReleaseHeldLoad("Ctrl+F8 pressed"); Duel.ReleaseStations("Ctrl+F8 pressed"); }
-                if (Input.GetKeyDown(KeyCode.F11)) _session.SendChat("ping from " + _playerName.Value + " at " + Time.realtimeSinceStartup.ToString("F1") + "s");
+                if (_devKeys.Value && Input.GetKeyDown(KeyCode.F11)) _session.SendChat("ping from " + _playerName.Value + " at " + Time.realtimeSinceStartup.ToString("F1") + "s");
             }
             try { _session.Update(); }
             catch (System.Exception ex) { Log("Session error: " + ex); }
