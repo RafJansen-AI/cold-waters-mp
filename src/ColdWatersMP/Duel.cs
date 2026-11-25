@@ -847,3 +847,31 @@ namespace ColdWatersMP
         static bool Prefix(MissionManager __instance) { return Duel.OnBattlestations(__instance); }
     }
 }
+
+namespace ColdWatersMP
+{
+    /// <summary>The briefing (PopulateBriefingText) moves the player's sub next to the "loudest" vessel of the mission,
+    /// which in a duel may be a merchant or happen after our placement: the host then sits miles from where the client
+    /// was placed (2 kyd placed, 24 kyd measured). In a duel, keep our sub where the placement put it.</summary>
+    [HarmonyLib.HarmonyPatch(typeof(MissionManager), "MovePlayerToStartPosition")]
+    static class Patch_MovePlayerToStartPosition
+    {
+        static void Prefix(out UnityEngine.Vector3 __state)
+        {
+            Vessel own = GameDataManager.playervesselsonlevel != null && GameDataManager.playervesselsonlevel.Length > 0 ? GameDataManager.playervesselsonlevel[0] : null;
+            __state = own != null ? own.transform.position : new UnityEngine.Vector3(float.NaN, 0f, 0f);
+            _rot = own != null ? own.transform.rotation : UnityEngine.Quaternion.identity;
+        }
+        static UnityEngine.Quaternion _rot;
+
+        static void Postfix(UnityEngine.Vector3 __state)
+        {
+            if (!Duel.InDuel || float.IsNaN(__state.x)) return;
+            Vessel own = GameDataManager.playervesselsonlevel[0];
+            if (own == null) return;
+            float moved = UnityEngine.Vector3.Distance(own.transform.position, __state);
+            own.transform.position = __state; own.transform.rotation = _rot;
+            Duel.Log("~Duel: briefing tried to move our sub " + moved.ToString("F0") + " units; kept the duel placement");
+        }
+    }
+}
