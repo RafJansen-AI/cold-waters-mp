@@ -391,6 +391,7 @@ namespace ColdWatersMP
                     Torpedo t;
                     Duel.Log("Our torpedo #" + id + " HIT the opponent");
                     OwnHits++;
+                    Ghosts.OnOpponentHit();
                     if (_own.TryGetValue(id, out t) && t != null) t.destroyMe = true; // explode here too
                     _own.Remove(id);
                     return true;

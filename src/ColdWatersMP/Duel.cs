@@ -74,7 +74,7 @@ namespace ColdWatersMP
         public static bool WaitingForOpponentChoice { get { return _heldLoad != null; } }
 
         // Latest two opponent states, for extrapolation
-        struct SubState { public float T; public Vector3 Pos; public Vector3 Euler; public float SpeedZ; public int Telegraph; public Vector2 Rudder; public Vector2 Ballast; public bool Cav; public bool Silent; public bool Submerged; public bool Active; }
+        struct SubState { public float T; public Vector3 Pos; public Vector3 Euler; public float SpeedZ; public int Telegraph; public Vector2 Rudder; public Vector2 Ballast; public bool Cav; public bool Silent; public bool Submerged; public bool Active; public byte Towed; }
         static SubState _s0, _s1;
         static float _s1LocalTime;
         static int _stateCount;
@@ -545,6 +545,7 @@ namespace ColdWatersMP
                 w.Write(m.ballastAngle.x); w.Write(m.ballastAngle.y);
                 w.Write(m.isCavitating); w.Write(silent); w.Write(v.submerged);
                 w.Write(v.acoustics.usingActiveSonar);
+                w.Write(TowedState(v));
             }, false);
         }
 
@@ -573,6 +574,7 @@ namespace ColdWatersMP
             else _pingTimer = UIFunctions.globaluifunctions.playerfunctions.activeSonarPingRate; // ping at once when they start
             Vector3 sp = m.shipSpeed; sp.z = _s1.SpeedZ; m.shipSpeed = sp;
             Puppet.submerged = _s1.Submerged;
+            ApplyTowed(Puppet, _s1.Towed);
 
             // Extrapolate the target pose from the last two states (unit-agnostic)
             Vector3 target = _s1.Pos;
@@ -647,6 +649,7 @@ namespace ColdWatersMP
                     s.Ballast = new Vector2(r.ReadSingle(), r.ReadSingle());
                     s.Cav = r.ReadBoolean(); s.Silent = r.ReadBoolean(); s.Submerged = r.ReadBoolean();
                     s.Active = r.ReadBoolean();
+                    s.Towed = r.ReadByte();
                     if (_stateCount > 0 && s.T <= _s1.T) break; // stale/out of order
                     _s0 = _stateCount > 0 ? _s1 : s; _s1 = s; _s1LocalTime = Time.time;
                     OppRunningSilent = s.Silent;
@@ -656,6 +659,43 @@ namespace ColdWatersMP
                     break;
                 }
             }
+        }
+
+        // ---------- towed array: DotMod runs it by speed for every AI vessel; for the puppet and ghosts it follows the network ----------
+
+        /// <summary>0 = in, 1 = out, 2 = destroyed.</summary>
+        public static byte TowedState(Vessel v)
+        {
+            DotModTowedArray ta = v != null && v.vesselmovement != null ? v.vesselmovement.towedArray : null;
+            if (ta == null) return 0;
+            try { return ta.isDestroyed ? (byte)2 : ta.GetDeployed() ? (byte)1 : (byte)0; } catch (System.Exception) { return 0; }
+        }
+
+        /// <summary>The opponent's array state as last received.</summary>
+        public static byte OppTowed { get { return _haveState ? _s1.Towed : (byte)0; } }
+
+        public static void ApplyTowed(Vessel v, byte state)
+        {
+            DotModTowedArray ta = v != null && v.vesselmovement != null ? v.vesselmovement.towedArray : null;
+            if (ta == null) return;
+            try
+            {
+                if (state == 2) { if (!ta.isDestroyed) ta.SetDestroyed(true); }
+                else
+                {
+                    if (ta.isDestroyed) ta.SetDestroyed(false); // a reused ghost
+                    bool want = state == 1;
+                    if (ta.GetDeployed() != want) ta.SetDeployed(want);
+                }
+            }
+            catch (System.Exception) { } // before DotMod's Start has run
+        }
+
+        public static bool IsRemoteArray(DotModTowedArray ta)
+        {
+            if (!InDuel || ta == null) return false;
+            if (Puppet != null && Puppet.vesselmovement != null && Puppet.vesselmovement.towedArray == ta) return true;
+            return Ghosts.OwnsArray(ta);
         }
 
         static void WriteV3(BinaryWriter w, Vector3 v) { w.Write(v.x); w.Write(v.y); w.Write(v.z); }
@@ -718,6 +758,12 @@ namespace ColdWatersMP
         }
     }
 
+    [HarmonyPatch(typeof(DotModTowedArray), "Update")]
+    static class Patch_TowedArrayUpdate
+    {
+        static bool Prefix(DotModTowedArray __instance) { return !Duel.IsRemoteArray(__instance); }
+    }
+
     /// <summary>Fairness: give the puppet the player-only quieting the real player gets.</summary>
     [HarmonyPatch(typeof(SensorManager), "GetVesselNoiseLevel")]
     static class Patch_NoiseLevel
@@ -734,7 +780,16 @@ namespace ColdWatersMP
             }
             // The player formula subtracts the RPG bonus before compression.
             if (__instance.passiveCompressionFactor != 0f) __result -= Duel.OppRpgSelfNoiseBonus / __instance.passiveCompressionFactor;
-            Duel.LastPuppetNoise = __result; // before the ping rule: a decoy copies the hull's noise, not the sonar's
+            // A decoy copies the hull's noise, not the sonar's. The game's AI rule has already added output/4 for a pinging
+            // vessel (when it was below the output), so take that off again.
+            float hull = __result;
+            int asid = activeVessel.databaseshipdata.activeSonarID;
+            if (activeVessel.acoustics.usingActiveSonar && asid >= 0)
+            {
+                float o = UIFunctions.globaluifunctions.database.databasesonardata[asid].sonarOutput;
+                if (hull - o / 4f < o) hull -= o / 4f;
+            }
+            Duel.LastPuppetNoise = hull;
             // A pinging player is at least as loud as their sonar's output (player rule, not the AI's +output/4).
             int sid = activeVessel.databaseshipdata.activeSonarID;
             if (Duel.OppActiveSonar && sid >= 0)

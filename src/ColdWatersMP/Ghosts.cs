@@ -27,6 +27,9 @@ namespace ColdWatersMP
             public float Start, Until, FadeOutStart = -1f;
             public float Noise;                    // the launcher's noise at launch
             public Vector3 LastPos, Vel;
+            public float Knots;                    // the decoy's run speed: steady, for the lead marker and TMA
+            public DatabaseWeaponData Wd;
+            public byte Towed;                     // the launcher's towed array at launch
         }
 
         static readonly List<Ghost> _ghosts = new List<Ghost>();
@@ -53,6 +56,8 @@ namespace ColdWatersMP
         public static void Reset()
         {
             _ghosts.Clear(); _ghostSig = null; _ghostSigFor = null; _marked.Clear(); _uncloaked.Clear(); _savedIcon.Clear(); _savedRot.Clear();
+            foreach (Look l in _looks.Values) if (l.Proxy != null) Object.Destroy(l.Proxy);
+            _looks.Clear();
             _chases.Clear();
             _rng = new System.Random();
             if (_decoyButton != null) _decoyButton.SetActive(false);
@@ -66,7 +71,7 @@ namespace ColdWatersMP
             Vessel[] ev = GameDataManager.enemyvesselsonlevel;
             if (ev == null) return;
             _park = new Vector3(0f, 0f, ParkNm * Duel.UnitsPerNm);
-            for (int i = 1; i < ev.Length; i++)
+            for (int i = 1; i < ev.Length && _ghosts.Count < Slots; i++) // only the first Slots extra enemies are ghosts
             {
                 Vessel v = ev[i];
                 if (v == null) continue;
@@ -83,6 +88,7 @@ namespace ColdWatersMP
         {
             Vector3 p = _park; p.y = 1000f - 200f / GameDataManager.unitsToFeet; // 200 ft: safe for every sub, never crushed
             v.transform.position = p;
+            Duel.ApplyTowed(v, 0);
             if (v.vesselmovement != null) { v.vesselmovement.telegraphValue = 0; Vector3 s = v.vesselmovement.shipSpeed; s.z = 0f; v.vesselmovement.shipSpeed = s; }
         }
 
@@ -123,6 +129,7 @@ namespace ColdWatersMP
             float run = wd.rangeInYards > 0f ? wd.rangeInYards / ydsPerSec : 1200f;
             g.TorpId = torpId; g.T = t; g.Start = Time.time; g.Until = Time.time + run + 10f; g.FadeOutStart = -1f;
             g.Noise = Duel.LastPuppetNoise;
+            g.Knots = wd.runSpeed; g.Wd = wd; g.Towed = Duel.OppTowed;
             g.LastPos = t.transform.position; g.Vel = Vector3.zero;
             Follow(g, t.transform.position, t.transform.eulerAngles.y);
             Duel.Log("~Ghosts: ghost " + g.V.vesselListIndex + " follows decoy #" + torpId + " (" + wd.weaponName + ", run " + (run / 60f).ToString("F0") + " min, noise " + g.Noise.ToString("F1") + ")");
@@ -144,7 +151,7 @@ namespace ColdWatersMP
             VesselMovement m = g.V.vesselmovement;
             if (m != null)
             {
-                float knots = new Vector3(g.Vel.x, 0f, g.Vel.z).magnitude * 75.13f * 3600f / 2025.37f;
+                float knots = g.Knots > 0f ? g.Knots : new Vector3(g.Vel.x, 0f, g.Vel.z).magnitude * 75.13f * 3600f / 2025.37f; // steady, not per-frame
                 Vector3 s = m.shipSpeed; s.z = knots / 10f; m.shipSpeed = s;
             }
         }
@@ -167,6 +174,7 @@ namespace ColdWatersMP
                     if (Time.deltaTime > 0f) g.Vel = Vector3.Lerp(g.Vel, (p - g.LastPos) / Time.deltaTime, 0.1f);
                     g.LastPos = p;
                     Follow(g, p, g.T.transform.eulerAngles.y);
+                    Duel.ApplyTowed(g.V, g.Towed);
                 }
                 else if (g.FadeOutStart >= 0f)
                 {
@@ -341,6 +349,7 @@ namespace ColdWatersMP
         /// <summary>Back to the game's own look: name, colour, and the icon the contact had before the tag.</summary>
         static void Unmark(int i)
         {
+            RemoveLook(i);
             PlayerFunctions pf = UIFunctions.globaluifunctions.playerfunctions;
             MapContact[] mcs = pf.sensormanager.tacticalmap.mapContact;
             Sprite sp; Quaternion rot;
@@ -372,6 +381,7 @@ namespace ColdWatersMP
             foreach (int i in _lookIdx)
             {
                 if (i >= mcs.Length || mcs[i] == null) continue;
+                try { ApplyLook(i); } catch (System.Exception ex) { Duel.Log("~Decoy look failed: " + ex.Message); }
                 MapContact mc = mcs[i];
                 string suffix = _uncloaked.Contains(i) ? ConfirmedSuffix : NoteSuffix;
                 mc.contactText.text = WithSuffix(mc.contactText.text, suffix);
@@ -391,6 +401,105 @@ namespace ColdWatersMP
         }
 
         // ---------- DECOY button in the code book (signature panel), a copy of its MARK button ----------
+
+        public static bool OwnsArray(DotModTowedArray ta)
+        {
+            foreach (Ghost g in _ghosts) if (g.V != null && g.V.vesselmovement != null && g.V.vesselmovement.towedArray == ta) return true;
+            return false;
+        }
+
+        /// <summary>Our torpedo hit the opponent: a "decoy?" note on the real sub is plainly wrong, take it off.</summary>
+        public static void OnOpponentHit()
+        {
+            if (!Duel.InDuel || Duel.Puppet == null) return;
+            int i = Duel.Puppet.vesselListIndex;
+            if (!_marked.Remove(i)) return;
+            Unmark(i);
+            PlayerFunctions pf = UIFunctions.globaluifunctions.playerfunctions;
+            SensorManager sm = pf.sensormanager;
+            string name = i < sm.initialDetectedByPlayerName.Length ? pf.GetBasicContactName(sm.initialDetectedByPlayerName[i]) : "Contact";
+            Color col; if (!pf.messageLogColors.TryGetValue("Sonar", out col)) col = MarkColor;
+            pf.PlayerMessage("Sonar: hit on " + name + ", that is the real submarine", col, "CWMP_RealSub");
+            Duel.Log("Our torpedo hit a contact tagged decoy?: tag removed, it is the real sub");
+        }
+
+        // ---------- 3D look: a tagged contact (note or confirmed) shows as a decoy torpedo ----------
+        // Only drawing changes: hits, noise and the opponent's game are untouched. The vessel's own renderers are switched
+        // off and a mesh-only copy of the decoy weapon's model rides at its position.
+
+        class Look { public Vessel V; public GameObject Proxy; public readonly List<Renderer> Hidden = new List<Renderer>(); public readonly List<bool> Was = new List<bool>(); public float NextScan; }
+        static readonly Dictionary<int, Look> _looks = new Dictionary<int, Look>();
+
+        static DatabaseWeaponData DecoyWeaponFor(int i, Vessel v)
+        {
+            foreach (Ghost g in _ghosts) if (g.V == v && g.Wd != null) return g.Wd;
+            // the real sub: the decoy its class carries (a class without one can't have ghosts, so nothing to imitate)
+            Database db = UIFunctions.globaluifunctions.database;
+            int[] ids = v.databaseshipdata.torpedoIDs;
+            if (ids != null) foreach (int id in ids) if (id >= 0 && id < db.databaseweapondata.Length && IsDecoy(db.databaseweapondata[id])) return db.databaseweapondata[id];
+            foreach (Ghost g in _ghosts) if (g.Wd != null) return g.Wd;
+            return null;
+        }
+
+        static GameObject BuildProxy(GameObject prefab)
+        {
+            if (prefab == null) return null;
+            Transform pr = prefab.transform;
+            GameObject root = new GameObject("CWMP_DecoyModel");
+            root.transform.localScale = pr.lossyScale;
+            int parts = 0;
+            foreach (MeshFilter mf in prefab.GetComponentsInChildren<MeshFilter>(true))
+            {
+                MeshRenderer src = mf.GetComponent<MeshRenderer>();
+                if (src == null || mf.sharedMesh == null) continue;
+                GameObject part = new GameObject("part");
+                part.transform.SetParent(root.transform, false);
+                part.transform.localPosition = pr.InverseTransformPoint(mf.transform.position);
+                part.transform.localRotation = Quaternion.Inverse(pr.rotation) * mf.transform.rotation;
+                Vector3 a = mf.transform.lossyScale, b = pr.lossyScale;
+                part.transform.localScale = new Vector3(b.x != 0f ? a.x / b.x : 1f, b.y != 0f ? a.y / b.y : 1f, b.z != 0f ? a.z / b.z : 1f);
+                part.AddComponent<MeshFilter>().sharedMesh = mf.sharedMesh;
+                part.AddComponent<MeshRenderer>().sharedMaterials = src.sharedMaterials;
+                parts++;
+            }
+            if (parts == 0) { Object.Destroy(root); return null; }
+            return root;
+        }
+
+        static void ApplyLook(int i)
+        {
+            Vessel[] ev = GameDataManager.enemyvesselsonlevel;
+            if (ev == null || i < 0 || i >= ev.Length || ev[i] == null) return;
+            Vessel v = ev[i];
+            Look l;
+            if (!_looks.TryGetValue(i, out l))
+            {
+                l = new Look { V = v };
+                DatabaseWeaponData wd = DecoyWeaponFor(i, v);
+                if (wd != null) l.Proxy = BuildProxy(wd.weaponObject);
+                if (l.Proxy == null) Duel.Log("~Decoy look: no decoy model for contact " + i + ", only the map changes");
+                _looks[i] = l;
+            }
+            if (l.Proxy == null) return; // never hide the sub without something to show instead
+            if (Time.time >= l.NextScan)
+            {
+                l.NextScan = Time.time + 2f; // new renderers appear now and then (array trail, wake)
+                foreach (Renderer r in v.GetComponentsInChildren<Renderer>(true))
+                    if (r != null && !l.Hidden.Contains(r)) { l.Hidden.Add(r); l.Was.Add(r.enabled); }
+            }
+            foreach (Renderer r in l.Hidden) if (r != null && r.enabled) r.enabled = false;
+            l.Proxy.transform.position = v.transform.position;
+            l.Proxy.transform.rotation = v.transform.rotation;
+        }
+
+        static void RemoveLook(int i)
+        {
+            Look l;
+            if (!_looks.TryGetValue(i, out l)) return;
+            _looks.Remove(i);
+            for (int k = 0; k < l.Hidden.Count; k++) if (l.Hidden[k] != null) l.Hidden[k].enabled = l.Was[k];
+            if (l.Proxy != null) Object.Destroy(l.Proxy);
+        }
 
         // A small text button "DECOY" on the ID book page, left of the four class icons (own / merchant / warship / sub)
         // in its top-right corner. Only the button's own box takes clicks.
