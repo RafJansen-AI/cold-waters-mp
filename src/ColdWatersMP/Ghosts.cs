@@ -419,6 +419,12 @@ namespace ColdWatersMP
             if (_decoyButton != null) _decoyButton.SetActive(true);
         }
 
+        static bool Under(Transform t, List<Transform> roots, Transform stop)
+        {
+            for (Transform p = t; p != null && p != stop; p = p.parent) if (roots.Contains(p)) return true;
+            return false;
+        }
+
         static GameObject CloneButton(Button mark)
         {
             Transform parent = mark.transform.parent;
@@ -432,39 +438,59 @@ namespace ColdWatersMP
                 }
             Duel.Log("~Code book buttons:" + layout);
 
+            // PREV and NEXT are children of MARK (positions relative to it). Measure them, and drop their copies.
+            float childRight = 0f, step = float.MaxValue;
+            foreach (Button cb in mark.GetComponentsInChildren<Button>(true))
+            {
+                if (cb == mark) continue;
+                RectTransform cr0 = cb.GetComponent<RectTransform>();
+                if (cr0 == null) continue;
+                float x = cr0.anchoredPosition.x;
+                if (x > childRight) childRight = x;
+                if (Mathf.Abs(x) > 1f && Mathf.Abs(x) < step) step = Mathf.Abs(x);
+            }
+
             GameObject go = (GameObject)Object.Instantiate(mark.gameObject);
             go.name = "CWMP_DecoyButton";
             go.transform.SetParent(parent, false);
+            List<Transform> dropped = new List<Transform>();
+            foreach (Button cb in go.GetComponentsInChildren<Button>(true))
+                if (cb.gameObject != go) { cb.gameObject.SetActive(false); dropped.Add(cb.transform); }
             if (parent != null && parent.GetComponent<LayoutGroup>() != null)
                 go.transform.SetSiblingIndex(mark.transform.GetSiblingIndex() + 1);
             else
             {
-                // PREV, MARK, NEXT sit in a row: put ours one step right of the rightmost button in that row.
                 RectTransform rt = go.GetComponent<RectTransform>(), mr = mark.GetComponent<RectTransform>();
                 if (rt != null && mr != null)
                 {
-                    float right = mr.anchoredPosition.x, step = float.MaxValue;
-                    foreach (Button b in parent.GetComponentsInChildren<Button>(true))
+                    if (step == float.MaxValue)
                     {
-                        if (b == mark || b.gameObject == go || b.transform.parent != parent) continue;
-                        RectTransform br = b.GetComponent<RectTransform>();
-                        if (br == null || Mathf.Abs(br.anchoredPosition.y - mr.anchoredPosition.y) > 2f) continue;
-                        float gap = Mathf.Abs(br.anchoredPosition.x - mr.anchoredPosition.x);
-                        if (gap > 1f && gap < step) step = gap;
-                        if (br.anchoredPosition.x > right) right = br.anchoredPosition.x;
+                        // no child buttons: look for siblings in MARK's row
+                        float right = mr.anchoredPosition.x;
+                        foreach (Button b in parent.GetComponentsInChildren<Button>(true))
+                        {
+                            if (b == mark || b.gameObject == go || b.transform.parent != parent) continue;
+                            RectTransform br = b.GetComponent<RectTransform>();
+                            if (br == null || Mathf.Abs(br.anchoredPosition.y - mr.anchoredPosition.y) > 2f) continue;
+                            float gap = Mathf.Abs(br.anchoredPosition.x - mr.anchoredPosition.x);
+                            if (gap > 1f && gap < step) step = gap;
+                            if (br.anchoredPosition.x > right) right = br.anchoredPosition.x;
+                        }
+                        if (step == float.MaxValue) step = mr.rect.height * 1.2f;
+                        childRight = right - mr.anchoredPosition.x;
                     }
-                    if (step == float.MaxValue) step = mr.rect.height * 1.2f;
-                    rt.anchoredPosition = new Vector2(right + step, mr.anchoredPosition.y);
+                    rt.anchoredPosition = new Vector2(mr.anchoredPosition.x + childRight + step, mr.anchoredPosition.y); // one step right of NEXT
+                    Duel.Log("~Code book: DECOY button at " + rt.anchoredPosition.x.ToString("F0") + "," + rt.anchoredPosition.y.ToString("F0") + " (MARK at " + mr.anchoredPosition.x.ToString("F0") + "," + mr.anchoredPosition.y.ToString("F0") + ")");
                 }
             }
-            TextLocaliser loc = go.GetComponentInChildren<TextLocaliser>();
-            if (loc != null) loc.enabled = false;
-            Text label = go.GetComponentInChildren<Text>();
+            foreach (TextLocaliser loc in go.GetComponentsInChildren<TextLocaliser>(true)) loc.enabled = false;
+            Text label = null;
+            foreach (Text tx in go.GetComponentsInChildren<Text>(true)) if (!Under(tx.transform, dropped, go.transform)) { label = tx; break; }
             if (label == null)
             {
                 // Icon button with its caption elsewhere: give ours its own caption.
                 Text any = null;
-                foreach (Text tx in parent.GetComponentsInChildren<Text>(true)) { any = tx; break; }
+                foreach (Text tx in mark.GetComponentsInChildren<Text>(true)) { any = tx; break; }
                 if (any != null)
                 {
                     GameObject cap = (GameObject)Object.Instantiate(any.gameObject);
@@ -479,7 +505,8 @@ namespace ColdWatersMP
             }
             else
             {
-                Text mt = mark.GetComponentInChildren<Text>();
+                Text mt = null;
+                foreach (Text tx in mark.GetComponentsInChildren<Text>(true)) if (tx.text != null && tx.text.Length > 0) { mt = tx; break; }
                 string t = mt != null ? mt.text : null;
                 label.text = (t != null && t.Length > 0 && t == t.ToLowerInvariant()) ? "decoy"
                            : (t != null && t.Length > 1 && t.Substring(1) == t.Substring(1).ToLowerInvariant()) ? "Decoy" : "DECOY";
