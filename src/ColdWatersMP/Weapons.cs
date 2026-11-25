@@ -89,7 +89,8 @@ namespace ColdWatersMP
                     if (!_decoyLogAt.TryGetValue(id, out last) || Time.time - last > 3f) // seekers flicker: log at most every 3 s
                     {
                         _decoyLogAt[id] = Time.time;
-                        Duel.Log("~Our torpedo #" + id + (decoyed ? " is going for a NOISEMAKER/DECOY" : " left the noisemaker/decoy"));
+                        string what = nm != null ? "a noisemaker" : (dt != null && _ownIds.ContainsKey(dt)) ? "OUR OWN decoy" : "the opponent's decoy";
+                        Duel.Log("~Our torpedo #" + id + (decoyed ? " is going for " + what : " left the noisemaker/decoy"));
                     }
                 }
                 S.SendGame(G_TORP_STATE, w => { w.Write(id); w.Write(time); WriteV3(w, pos); WriteV3(w, eul); w.Write(homing); }, false);
