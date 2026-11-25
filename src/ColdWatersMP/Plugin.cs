@@ -12,7 +12,7 @@ namespace ColdWatersMP
     public class CwmpPlugin : BaseUnityPlugin
     {
         public static string ModHash = "";
-        public const string PluginVersion = "0.0.39";
+        public const string PluginVersion = "0.0.40";
 
         ConfigEntry<string> _role, _hostAddress, _playerName, _fakeHash;
         ConfigEntry<int> _port;
@@ -52,7 +52,7 @@ namespace ColdWatersMP
             _pauseBoth = Config.Bind("Match", "PauseBoth", false, "Host: true = the Esc menu pauses both games; false = no pausing");
             _allowTC = Config.Bind("Match", "TimeCompression", true, "Host: allow time compression when both players ask for it");
             _reducedVis = Config.Bind("Match", "ReducedVisibility", true, "Host: DotMod Reduced Visibility (denser underwater fog) for both players; false = clear water");
-            _traffic = Config.Bind("Match", "NeutralTraffic", 1, "Host: neutral traffic (merchants, fishing boats, whales): 0 off, 1 as the map gives it, 2 extra");
+            _traffic = Config.Bind("Match", "NeutralTraffic", 1, "Host: neutral traffic (merchants, fishing boats, whales): 0 off, 1 random, 2 low, 3 medium, 4 high");
             LoadMatchSettings();
             _overlayCfg = Config.Bind("Display", "Overlay", 1, "0 = full (testing), 1 = compact one-liner, 2 = off. Ctrl+F9 cycles.");
             Duel.RangeMinNm = _rangeMin.Value; Duel.RangeMaxNm = _rangeMax.Value;
@@ -149,7 +149,7 @@ namespace ColdWatersMP
             Match.Weather = _weather.Value; Match.SeaState = _sea.Value; Match.Layer = _layer.Value;
             Match.Duct = _duct.Value; Match.TimeChoice = _time.Value;
             Match.HostPauseBoth = _pauseBoth.Value; Match.HostAllowTC = _allowTC.Value; Match.HostReducedVisibility = _reducedVis.Value;
-            Ambient.HostLevel = (Ambient.Level)Mathf.Clamp(_traffic.Value, 0, 2);
+            Ambient.HostLevel = (Ambient.Level)Mathf.Clamp(_traffic.Value, 0, 4);
         }
 
         void SaveMatchSettings()
@@ -260,7 +260,7 @@ namespace ColdWatersMP
             Match.HostPauseBoth = Stepper("Pause", Match.HostPauseBoth ? 1 : 0, 2, Match.HostPauseBoth ? "Esc pauses both" : "Blocked") == 1;
             Match.HostAllowTC = Stepper("Time compr.", Match.HostAllowTC ? 1 : 0, 2, Match.HostAllowTC ? "When both ask" : "Off") == 1;
             Match.HostReducedVisibility = Stepper("Visibility", Match.HostReducedVisibility ? 1 : 0, 2, Match.HostReducedVisibility ? "Reduced Visibility on" : "Reduced Visibility off") == 1;
-            Ambient.HostLevel = (Ambient.Level)Stepper("Traffic", (int)Ambient.HostLevel, 3, Ambient.HostLevel == Ambient.Level.Off ? "No neutral traffic" : Ambient.HostLevel == Ambient.Level.Map ? "Traffic as the map gives it" : "Extra traffic");
+            Ambient.HostLevel = (Ambient.Level)Stepper("Traffic", (int)Ambient.HostLevel, 5, Ambient.LevelText(Ambient.HostLevel));
             if (pb != Match.HostPauseBoth || tc != Match.HostAllowTC || rv != Match.HostReducedVisibility || tl != Ambient.HostLevel) rangeBefore = -1f; // force a save
             GUILayout.Label("Difficulty: yours (set it in the game options); the client uses it too.");
             GUILayout.Label("Settings apply from the next mission start.");

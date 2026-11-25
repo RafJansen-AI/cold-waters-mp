@@ -13,12 +13,24 @@ namespace ColdWatersMP
     public static class Ambient
     {
         public const byte G_AMB_STATE = 18, G_AMB_HIT = 19;
-        public enum Level { Off = 0, Map = 1, Extra = 2 }
-        public static Level HostLevel = Level.Map;           // host setting (F6)
+        public enum Level { Off = 0, Random = 1, Low = 2, Medium = 3, High = 4 }
+        public static Level HostLevel = Level.Random;        // host setting (F6)
+        public static string LevelText(Level l)
+        {
+            switch (l)
+            {
+                case Level.Off: return "No neutral traffic";
+                case Level.Random: return "Random: none, some or a lot";
+                case Level.Low: return "Low: about what the map gives";
+                case Level.Medium: return "Medium";
+                default: return "High";
+            }
+        }
         public const int MaxNeutrals = 9;                   // 15 vessels - opponent - 5 ghosts
 
         class Entry { public int Cls; public string Flag; }
         static readonly List<Entry> _list = new List<Entry>(); // this mission's list (rolled by the host or received)
+        static readonly List<int> _pool = new List<int>();     // every class that could have spawned: all go in the ID book
         public static int Count { get { return _list.Count; } }
         public static int Start { get { return 1 + Ghosts.Slots; } }
 
@@ -43,16 +55,26 @@ namespace ColdWatersMP
         /// <summary>Host, at mission start: roll the traffic the way the game does, from its traffic maps.</summary>
         public static void HostRoll(LevelLoadData d)
         {
-            _list.Clear();
+            _list.Clear(); _pool.Clear();
             if (HostLevel == Level.Off || d == null) { Duel.Log("Neutral traffic: off"); return; }
-            float mult = HostLevel == Level.Extra ? 2.5f : 1f;
+            // The ID book always lists every class this mission could spawn, so an empty sea isn't given away by the book.
+            List<int>[] groups = { d.neutralMerchantIDs1, d.neutralMerchantIDs2, d.neutralMerchantIDs3, d.neutralMerchantIDs4,
+                d.neutralFishingIDs1, d.neutralFishingIDs2, d.neutralFishingIDs3, d.neutralFishingIDs4 };
+            DatabaseShipData[] sdb = UIFunctions.globaluifunctions.database.databaseshipdata;
+            foreach (List<int> g in groups) if (g != null) foreach (int c in g) if (c >= 0 && c < sdb.Length && !_pool.Contains(c)) _pool.Add(c);
+            for (int i = 0; i < sdb.Length; i++) if (sdb[i] != null && sdb[i].shipType == "BIOLOGIC" && !_pool.Contains(i)) _pool.Add(i);
+            Level lv = HostLevel;
+            if (lv == Level.Random) lv = (Level)Random.Range(0, 5); // Off 20%, Low 40%, Medium 20%, High 20%
+            if (lv == Level.Random) lv = Level.Low;
+            if (lv == Level.Off) { Duel.Log("Neutral traffic (Random): none this time"); return; }
+            float mult = lv == Level.High ? 3f : lv == Level.Medium ? 1.75f : 1f;
             CampaignManager cm = UIFunctions.globaluifunctions.campaignmanager;
             Texture2D fish = cm != null ? cm.mapFishingTraffic : null, merch = cm != null ? cm.mapMerchantTraffic : null;
             int px = Mathf.FloorToInt(d.mapPosition.x / 16f), py = Mathf.FloorToInt(d.mapPosition.y / 16f);
             Color mp = merch != null ? merch.GetPixel(px, py) : new Color(0f, 0f, 0f, 0f);
             Color fp = fish != null ? fish.GetPixel(px, py) : new Color(0f, 0f, 0f, 0f);
-            // No traffic map (some single missions): "Extra" still gives a little of everything.
-            float floor = HostLevel == Level.Extra ? 0.25f : 0f;
+            // A floor, so maps without traffic data (some single missions) still get some.
+            float floor = lv == Level.High ? 0.5f : lv == Level.Medium ? 0.3f : 0.1f;
             Group(d, Mathf.Max(mp.r, floor), d.neutralMerchantIDs1, d.neutralMerchantFlags1, mult);
             Group(d, Mathf.Max(mp.g, floor), d.neutralMerchantIDs2, d.neutralMerchantFlags2, mult);
             Group(d, Mathf.Max(mp.b, floor), d.neutralMerchantIDs3, d.neutralMerchantFlags3, mult);
@@ -73,7 +95,7 @@ namespace ColdWatersMP
                 for (int k = 0; k < n; k++) _list.Add(new Entry { Cls = whales[Random.Range(0, whales.Count)], Flag = "" });
             }
             while (_list.Count > MaxNeutrals) _list.RemoveAt(_list.Count - 1);
-            Duel.Log("Neutral traffic (" + HostLevel + (merch == null && fish == null ? ", no traffic map here" : "") + "): " + _list.Count + " - " + Describe());
+            Duel.Log("Neutral traffic (" + HostLevel + (HostLevel == Level.Random ? " -> " + lv : "") + (merch == null && fish == null ? ", no traffic map here" : "") + "): " + _list.Count + " - " + Describe());
         }
 
         static void Group(LevelLoadData d, float threshold, List<int> ids, List<string> flags, float mult)
@@ -93,6 +115,8 @@ namespace ColdWatersMP
         {
             w.Write(_list.Count);
             foreach (Entry e in _list) { w.Write(e.Cls); w.Write(e.Flag ?? ""); }
+            w.Write(_pool.Count);
+            foreach (int c in _pool) w.Write(c);
         }
 
         /// <summary>Client: the host's list, read with the match message.</summary>
@@ -107,14 +131,19 @@ namespace ColdWatersMP
                 Entry e = new Entry { Cls = r.ReadInt32(), Flag = r.ReadString() };
                 if (e.Cls >= 0 && e.Cls < max && e.Flag.IndexOf("..") < 0) l.Add(e); // flags are Resources paths
             }
+            int pn = r.ReadInt32();
+            if (pn < 0 || pn > 256) throw new IOException("bad traffic pool");
+            List<int> pool = new List<int>();
+            for (int i = 0; i < pn; i++) { int c = r.ReadInt32(); if (c >= 0 && c < max && !pool.Contains(c)) pool.Add(c); }
             if (!keep) return;
             _list.Clear(); _list.AddRange(l);
+            _pool.Clear(); _pool.AddRange(pool);
         }
 
         /// <summary>The neutral classes, for the ID book.</summary>
         public static List<int> Classes()
         {
-            List<int> c = new List<int>();
+            List<int> c = new List<int>(_pool);
             foreach (Entry e in _list) if (!c.Contains(e.Cls)) c.Add(e.Cls);
             return c;
         }

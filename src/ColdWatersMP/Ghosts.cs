@@ -3,7 +3,7 @@
 // follows the network (torpedo seekers there can still go for it, as in the game), and a ghost sub follows that
 // copy: a second enemy vessel of the launcher's class, sounding like the launcher did at launch, so the crew
 // classifies it as that sub. Its tells: steady course and speed, no reactions or transients, a limited run, and
-// one signature line shifted by a pixel or two. It can't be hit and never counts as a kill.
+// one signature line shifted by one pixel. It can't be hit and never counts as a kill.
 // Ghost vessels are spawned with the mission (enemies 1..Slots) and wait far away, silent, until a decoy comes.
 using System.Collections.Generic;
 using HarmonyLib;
@@ -135,7 +135,7 @@ namespace ColdWatersMP
             g.Knots = wd.runSpeed; g.Wd = wd; g.Towed = Duel.OppTowed;
             g.LastPos = t.transform.position; g.Vel = Vector3.zero;
             Follow(g, t.transform.position, t.transform.eulerAngles.y);
-            Duel.Log("~Ghosts: ghost " + g.V.vesselListIndex + " follows decoy #" + torpId + " (" + wd.weaponName + ", run " + (run / 60f).ToString("F0") + " min, noise " + g.Noise.ToString("F1") + ")");
+            Duel.Log("~Ghosts: ghost " + g.V.vesselListIndex + " follows decoy #" + torpId + " (" + wd.weaponName + ", run " + (run / 60f).ToString("F0") + " min, noise " + g.Noise.ToString("F1") + ", launcher " + Duel.LastPuppetNoise.ToString("F1") + ")");
         }
 
         /// <summary>The decoy copy ended here (end message or removed): fade the ghost out along its last course.</summary>
@@ -297,7 +297,7 @@ namespace ColdWatersMP
                 peaks.Sort((a, b) => col[b].CompareTo(col[a]));
                 if (peaks.Count == 0) return null;
                 int line = peaks[_rng.Next(System.Math.Min(3, peaks.Count))];
-                int d = _rng.Next(2) == 0 ? -2 : 2;
+                int d = _rng.Next(2) == 0 ? -1 : 1;
                 // Move that line (and its one-pixel shoulders) by d columns; the gap gets the neighbouring background.
                 Color[] outPx = (Color[])px.Clone();
                 for (int y = 0; y < h; y++)
