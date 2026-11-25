@@ -218,7 +218,7 @@ namespace ColdWatersMP
             d.kmShipInstances = new int[n];
             d.kmSlots = new int[n];
             InDuel = true;
-            Log("Duel: mission rewritten to 1 enemy (" + ClassName(oppCls) + ") + " + Ghosts.Slots + " decoy ghosts, no traffic or aircraft");
+            Log("Duel: mission rewritten to 1 enemy (" + ClassName(oppCls) + ") + " + Ghosts.Slots + " decoy ghosts, no aircraft; neutral traffic: " + Ambient.Count);
             SetIdBook(oppCls);
             return true;
         }
@@ -258,6 +258,7 @@ namespace ColdWatersMP
             Puppet = GameDataManager.enemyvesselsonlevel[0];
             MakePuppet(Puppet);
             try { Ghosts.Setup(); } catch (System.Exception ex) { Log("Ghost setup failed: " + ex.Message); }
+            try { Ambient.Setup(); } catch (System.Exception ex) { Log("Neutral traffic setup failed: " + ex.Message); }
             LocalInMission = true;
             _ownSunk = false; _oppSunk = false; Result = ""; _startTime = Time.time;
 
@@ -330,9 +331,11 @@ namespace ColdWatersMP
                     foreach (int id in all)
                         if (Side(db[id].shipPrefabName) == side && !book.Contains(id)) book.Add(id);
                 if (!book.Contains(oppCls)) book.Add(oppCls);
+                int subs = book.Count;
+                foreach (int c in Ambient.Classes()) if (!book.Contains(c)) book.Add(c); // neutral traffic, so it can be classified too
                 pf.otherVesselList = book.ToArray();
                 pf.currentSignatureIndex = 0; // used as a position in the list without a bounds check
-                Log("ID book: " + book.Count + " " + side + " submarines");
+                Log("ID book: " + subs + " " + side + " submarines" + (book.Count > subs ? " + " + (book.Count - subs) + " neutral classes" : ""));
             }
             catch (System.Exception ex) { Log("ID book not changed: " + ex.Message); }
         }
@@ -508,6 +511,7 @@ namespace ColdWatersMP
             EnvSync.HostNewSeed(); // host: new ocean for the next mission (the client keeps the latest seed it got)
             Weapons.Reset();
             Ghosts.Reset();
+            Ambient.Reset();
         }
 
         // ---------- per-frame ----------
@@ -528,6 +532,7 @@ namespace ColdWatersMP
             }
             DrivePuppet();
             try { Ghosts.Update(); } catch (System.Exception ex) { Log("~Ghost update failed: " + ex.Message); }
+            try { Ambient.Update(); } catch (System.Exception ex) { Log("~Neutral update failed: " + ex.Message); }
             Weapons.Update();
         }
 
@@ -602,6 +607,7 @@ namespace ColdWatersMP
             if (EnvSync.OnMessage(type, r)) return;
             if (Match.OnMessage(type, r)) return;
             if (TimeSync.OnMessage(type, r)) return;
+            if (Ambient.OnMessage(type, r)) return;
             switch (type)
             {
                 case G_SUBCHOICE:
@@ -754,7 +760,7 @@ namespace ColdWatersMP
     {
         static bool Prefix(VesselAI __instance)
         {
-            return !(Duel.InDuel && ((Duel.Puppet != null && Duel.Puppet.vesselai == __instance) || Ghosts.IsGhostAI(__instance)));
+            return !(Duel.InDuel && ((Duel.Puppet != null && Duel.Puppet.vesselai == __instance) || Ghosts.IsGhostAI(__instance) || Ambient.IsRemoteAI(__instance)));
         }
     }
 

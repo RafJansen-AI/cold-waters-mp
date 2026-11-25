@@ -45,6 +45,15 @@ namespace ColdWatersMP
         // Match statistics (for the result line)
         public static int OwnFired, OppFired, OwnHits, OppHits;
 
+        /// <summary>Client: the host says our torpedo hit a neutral there; explode it here too.</summary>
+        public static void OwnTorpedoHitNeutral(int id)
+        {
+            Torpedo t;
+            Duel.Log("Our torpedo #" + id + " hit a neutral vessel");
+            if (_own.TryGetValue(id, out t) && t != null) t.destroyMe = true;
+            _own.Remove(id);
+        }
+
         public static bool IsPuppetTorpedo(Torpedo t) { return t != null && _puppetTorps.Contains(t); }
         public static bool IsOwnTorpedo(Torpedo t) { return t != null && _ownIds.ContainsKey(t); }
 
@@ -183,6 +192,12 @@ namespace ColdWatersMP
                 // Flagged without hitting anything (mission teardown, noisemaker, ...): not a hit.
                 Duel.Log((inc.Decoy ? "~" : "") + "Opponent torpedo #" + id + " removed here without a hit");
                 Kill(id, false);
+                return;
+            }
+            if (t.destroyMe && Ambient.TookNeutralHit(t))
+            {
+                Ambient.SendHit(id);
+                Kill(id, true);
                 return;
             }
             if (t.destroyMe)
@@ -554,6 +569,7 @@ namespace ColdWatersMP
         static bool Prefix(Compartment __instance, Collider otherObject)
         {
             if (Ghosts.IsGhost(__instance.activeVessel)) return false; // ghosts can't be hit
+            if (Ambient.IsNeutral(__instance.activeVessel)) return Ambient.AllowHit(__instance, otherObject); // the host decides
             if (!Duel.IsPuppet(__instance.activeVessel)) return true;
             return otherObject == null || otherObject.GetComponent<Torpedo>() == null;
         }

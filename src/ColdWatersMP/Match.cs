@@ -166,6 +166,7 @@ namespace ColdWatersMP
             _lastSentSeq = ++_sentSeq;
             _matchPauseBoth = HostPauseBoth; _matchAllowTC = HostAllowTC; _matchReducedVis = HostReducedVisibility;
             ApplyVisibility(_matchReducedVis);
+            Ambient.HostRoll(d);
             SendLast();
         }
 
@@ -185,6 +186,7 @@ namespace ColdWatersMP
                 w.Write(seq); Write(w, s); w.Write(pause); w.Write(tc); w.Write(vis);
                 w.Write(diff.Count);
                 foreach (KeyValuePair<string, float> kv in diff) { w.Write(kv.Key); w.Write(kv.Value); }
+                Ambient.Write(w);
             }, true);
             LastSummary = Describe(s);
             Duel.Log("Match sent: " + LastSummary);
@@ -280,6 +282,7 @@ namespace ColdWatersMP
             int n = r.ReadInt32();
             Dictionary<string, float> diff = new Dictionary<string, float>();
             for (int i = 0; i < n; i++) { string k = r.ReadString(); diff[k] = r.ReadSingle(); }
+            Ambient.Read(r, !Duel.Session.IsHost);
             if (Duel.Session.IsHost) return true; // only the host decides
             _hostDifficulty = diff;
             _clientPauseBoth = pause; _clientAllowTC = tc; _clientReducedVis = vis;

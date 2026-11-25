@@ -11,7 +11,7 @@ namespace ColdWatersMP
     [BepInPlugin("cwmp", "Cold Waters MP", PluginVersion)]
     public class CwmpPlugin : BaseUnityPlugin
     {
-        public const string PluginVersion = "0.0.37";
+        public const string PluginVersion = "0.0.38";
 
         ConfigEntry<string> _role, _hostAddress, _playerName, _fakeHash;
         ConfigEntry<int> _port;
@@ -26,6 +26,7 @@ namespace ColdWatersMP
         ConfigEntry<int> _cond, _weather, _sea, _layer, _duct, _time;
         ConfigEntry<bool> _pauseBoth, _allowTC;
         ConfigEntry<bool> _reducedVis;
+        ConfigEntry<int> _traffic;
         Rect _settingsRect = new Rect(540, 10, 470, 520);
         readonly List<string> _logLines = new List<string>();
 
@@ -50,6 +51,7 @@ namespace ColdWatersMP
             _pauseBoth = Config.Bind("Match", "PauseBoth", false, "Host: true = the Esc menu pauses both games; false = no pausing");
             _allowTC = Config.Bind("Match", "TimeCompression", true, "Host: allow time compression when both players ask for it");
             _reducedVis = Config.Bind("Match", "ReducedVisibility", true, "Host: DotMod Reduced Visibility (denser underwater fog) for both players; false = clear water");
+            _traffic = Config.Bind("Match", "NeutralTraffic", 1, "Host: neutral traffic (merchants, fishing boats, whales): 0 off, 1 as the map gives it, 2 extra");
             LoadMatchSettings();
             _overlayCfg = Config.Bind("Display", "Overlay", 1, "0 = full (testing), 1 = compact one-liner, 2 = off. Ctrl+F9 cycles.");
             Duel.RangeMinNm = _rangeMin.Value; Duel.RangeMaxNm = _rangeMax.Value;
@@ -143,6 +145,7 @@ namespace ColdWatersMP
             Match.Weather = _weather.Value; Match.SeaState = _sea.Value; Match.Layer = _layer.Value;
             Match.Duct = _duct.Value; Match.TimeChoice = _time.Value;
             Match.HostPauseBoth = _pauseBoth.Value; Match.HostAllowTC = _allowTC.Value; Match.HostReducedVisibility = _reducedVis.Value;
+            Ambient.HostLevel = (Ambient.Level)Mathf.Clamp(_traffic.Value, 0, 2);
         }
 
         void SaveMatchSettings()
@@ -151,6 +154,7 @@ namespace ColdWatersMP
             _layer.Value = Match.Layer; _duct.Value = Match.Duct; _time.Value = Match.TimeChoice;
             _rangeMin.Value = Duel.RangeMinNm; _rangeMax.Value = Duel.RangeMaxNm;
             _pauseBoth.Value = Match.HostPauseBoth; _allowTC.Value = Match.HostAllowTC; _reducedVis.Value = Match.HostReducedVisibility;
+            _traffic.Value = (int)Ambient.HostLevel;
         }
 
         /// <summary>One "&lt; value &gt;" row; returns the new index.</summary>
@@ -247,13 +251,14 @@ namespace ColdWatersMP
             int nhi = Stepper("Range to", hi - 1, 50, hi + unit) + 1;
             if (nlo != lo) { Duel.RangeMinNm = nlo / perNm; if (Duel.RangeMaxNm < Duel.RangeMinNm) Duel.RangeMaxNm = Duel.RangeMinNm; }
             if (nhi != hi) { Duel.RangeMaxNm = nhi / perNm; if (Duel.RangeMinNm > Duel.RangeMaxNm) Duel.RangeMinNm = Duel.RangeMaxNm; }
-            bool pb = Match.HostPauseBoth, tc = Match.HostAllowTC, rv = Match.HostReducedVisibility;
+            bool pb = Match.HostPauseBoth, tc = Match.HostAllowTC, rv = Match.HostReducedVisibility; Ambient.Level tl = Ambient.HostLevel;
             Match.HostPauseBoth = Stepper("Pause", Match.HostPauseBoth ? 1 : 0, 2, Match.HostPauseBoth ? "Esc pauses both" : "Blocked") == 1;
             Match.HostAllowTC = Stepper("Time compr.", Match.HostAllowTC ? 1 : 0, 2, Match.HostAllowTC ? "When both ask" : "Off") == 1;
             Match.HostReducedVisibility = Stepper("Visibility", Match.HostReducedVisibility ? 1 : 0, 2, Match.HostReducedVisibility ? "Reduced Visibility on" : "Reduced Visibility off") == 1;
-            if (pb != Match.HostPauseBoth || tc != Match.HostAllowTC || rv != Match.HostReducedVisibility) rangeBefore = -1f; // force a save
+            Ambient.HostLevel = (Ambient.Level)Stepper("Traffic", (int)Ambient.HostLevel, 3, Ambient.HostLevel == Ambient.Level.Off ? "No neutral traffic" : Ambient.HostLevel == Ambient.Level.Map ? "Traffic as the map gives it" : "Extra traffic");
+            if (pb != Match.HostPauseBoth || tc != Match.HostAllowTC || rv != Match.HostReducedVisibility || tl != Ambient.HostLevel) rangeBefore = -1f; // force a save
             GUILayout.Label("Difficulty: yours (set it in the game options); the client uses it too.");
-            GUILayout.Label("Neutral traffic: off (not synced yet). Settings apply from the next mission start.");
+            GUILayout.Label("Settings apply from the next mission start.");
             if (Match.LastSummary.Length > 0) GUILayout.Label("Last match: " + Match.LastSummary);
             int after = (int)Match.Conditions * 1000 + Match.Weather * 100 + Match.SeaState * 10 + Match.Layer + Match.Duct * 7 + Match.TimeChoice * 13;
             if (after != before || rangeBefore != Duel.RangeMinNm * 100f + Duel.RangeMaxNm) SaveMatchSettings();
