@@ -8,6 +8,8 @@
 using System.Collections.Generic;
 using HarmonyLib;
 using UnityEngine;
+using UnityEngine.Events;
+using UnityEngine.UI;
 
 namespace ColdWatersMP
 {
@@ -31,13 +33,26 @@ namespace ColdWatersMP
         static Vector3 _park;
         static System.Random _rng = new System.Random();
         static Texture2D _ghostSig; static string _ghostSigFor;
-        static readonly HashSet<int> _marked = new HashSet<int>();   // contacts the player tagged as DECOY
+        static readonly HashSet<int> _marked = new HashSet<int>();   // contacts tagged as DECOY (by the player, or by the crew after a pass)
         const string MarkSuffix = " DECOY";
+        static readonly Color MarkColor = new Color(0.6f, 0.6f, 0.6f, 1f);
+
+        // Our torpedoes that chase a decoy copy here: when one gets close and then opens again without a hit, it has
+        // passed the decoy. Its seeker then ignores that decoy and the crew reassesses the contact as a decoy.
+        class Chase { public Torpedo Torp; public Ghost G; public float MinYd = float.MaxValue; public float LastChase; }
+        static readonly List<Chase> _chases = new List<Chase>();
+        static readonly Dictionary<Torpedo, List<Transform>> _ignore = new Dictionary<Torpedo, List<Transform>>();
+        const float YdPerUnit = 75.13f, PassCloseYd = 100f, PassAwayYd = 60f, ChaseMemorySeconds = 10f;
+
+        static GameObject _decoyButton;
+        static bool _buttonMissingLogged;
 
         public static void Reset()
         {
             _ghosts.Clear(); _ghostSig = null; _ghostSigFor = null; _marked.Clear();
+            _chases.Clear(); _ignore.Clear();
             _rng = new System.Random();
+            if (_decoyButton != null) _decoyButton.SetActive(false);
         }
 
         /// <summary>AfterLoadLevel: enemies 1.. are the ghosts. Turn their AI off and send them away.</summary>
@@ -58,6 +73,7 @@ namespace ColdWatersMP
                 _ghosts.Add(new Ghost { V = v });
             }
             Duel.Log("~Ghosts: " + _ghosts.Count + " ghost sub(s) ready for decoys");
+            try { SetupButton(); } catch (System.Exception ex) { Duel.Log("~Code book DECOY button failed: " + ex.Message + " (Ctrl+F5 still works)"); }
         }
 
         static void Park(Vessel v)
@@ -155,13 +171,75 @@ namespace ColdWatersMP
                     {
                         Duel.Log("~Ghosts: ghost " + g.V.vesselListIndex + " gone");
                         g.TorpId = -1; Park(g.V);
+                        if (_marked.Remove(g.V.vesselListIndex)) Unmark(g.V.vesselListIndex); // a reused ghost must not come back tagged
                         continue;
                     }
                     g.LastPos += g.Vel * Time.deltaTime; // keeps going straight while it fades
                     Follow(g, g.LastPos, g.V.transform.eulerAngles.y);
                 }
             }
+            CheckPasses();
             KeepMarks();
+        }
+
+        static void CheckPasses()
+        {
+            Torpedo[] tos = UIFunctions.globaluifunctions.playerfunctions.sensormanager.torpedoObjects;
+            if (tos != null)
+                foreach (Torpedo t in tos)
+                {
+                    if (t == null || !Weapons.IsOwnTorpedo(t) || IsDecoy(t.databaseweapondata)) continue;
+                    foreach (Ghost g in _ghosts)
+                    {
+                        if (g.T == null || g.V == null) continue;
+                        bool chasing = t.targetTransform == g.T.transform;
+                        Chase c = null;
+                        foreach (Chase x in _chases) if (x.Torp == t && x.G == g) { c = x; break; }
+                        if (c == null)
+                        {
+                            if (!chasing || Ignores(t, g.T.transform)) continue;
+                            c = new Chase { Torp = t, G = g }; _chases.Add(c);
+                        }
+                        if (chasing) c.LastChase = Time.time;
+                        float yd = Vector3.Distance(t.transform.position, g.T.transform.position) * YdPerUnit;
+                        if (yd < c.MinYd) c.MinYd = yd;
+                        if (c.MinYd < PassCloseYd && yd > c.MinYd + PassAwayYd) { Passed(t, g, c.MinYd); c.Torp = null; }
+                    }
+                }
+            // forget ended torpedoes, finished decoys and chases the seeker gave up on long ago
+            _chases.RemoveAll(c => c.Torp == null || c.G.T == null || Time.time - c.LastChase > ChaseMemorySeconds);
+            if (_ignore.Count > 0)
+            {
+                List<Torpedo> dead = null;
+                foreach (Torpedo k in _ignore.Keys) if (k == null) { if (dead == null) dead = new List<Torpedo>(); dead.Add(k); }
+                if (dead != null) foreach (Torpedo k in dead) _ignore.Remove(k);
+            }
+        }
+
+        static void Passed(Torpedo t, Ghost g, float minYd)
+        {
+            List<Transform> l;
+            if (!_ignore.TryGetValue(t, out l)) { l = new List<Transform>(); _ignore[t] = l; }
+            l.Add(g.T.transform);
+            if (t.targetTransform == g.T.transform) t.targetTransform = null; // search again: the real sub, if it is in the cone
+            int i = g.V.vesselListIndex;
+            Duel.Log("Our torpedo passed a decoy (closest " + minYd.ToString("F0") + " yd), it now looks for the sub");
+            if (_marked.Add(i))
+            {
+                SensorManager sm = UIFunctions.globaluifunctions.playerfunctions.sensormanager;
+                string name = i < sm.initialDetectedByPlayerName.Length ? UIFunctions.globaluifunctions.playerfunctions.GetBasicContactName(sm.initialDetectedByPlayerName[i]) : "Contact";
+                PlayerFunctions pf = UIFunctions.globaluifunctions.playerfunctions;
+                Color col; if (!pf.messageLogColors.TryGetValue("Sonar", out col)) col = MarkColor;
+                pf.PlayerMessage("Sonar: " + name + " reassessed as a DECOY, our torpedo passed it", col, "CWMP_Decoy");
+            }
+            KeepMarks();
+        }
+
+        public static bool Ignores(Torpedo t, Transform target)
+        {
+            if (_ignore.Count == 0 || t == null || target == null) return false;
+            List<Transform> l;
+            return _ignore.TryGetValue(t, out l) && l.Contains(target);
         }
 
         /// <summary>GetVesselNoiseLevel postfix for ghosts: silent while dormant, else the launcher's noise with a fade.</summary>
@@ -246,22 +324,113 @@ namespace ColdWatersMP
             PlayerFunctions pf = UIFunctions.globaluifunctions.playerfunctions;
             int i = pf.currentTargetIndex;
             if (i < 0) return;
-            MapContact mc = pf.sensormanager.tacticalmap.mapContact[i];
-            if (_marked.Remove(i))
-            {
-                if (mc != null && mc.contactText.text.EndsWith(MarkSuffix)) mc.contactText.text = mc.contactText.text.Substring(0, mc.contactText.text.Length - MarkSuffix.Length);
-                Duel.Log("Contact no longer tagged as decoy");
-            }
+            if (_marked.Remove(i)) { Unmark(i); Duel.Log("Contact no longer tagged as decoy"); }
             else { _marked.Add(i); Duel.Log("Contact tagged as DECOY (your note only)"); }
             KeepMarks();
         }
 
+        static string Strip(string t) { return t != null && t.EndsWith(MarkSuffix) ? t.Substring(0, t.Length - MarkSuffix.Length) : t; }
+
+        static void Unmark(int i)
+        {
+            PlayerFunctions pf = UIFunctions.globaluifunctions.playerfunctions;
+            MapContact[] mcs = pf.sensormanager.tacticalmap.mapContact;
+            if (i >= mcs.Length || mcs[i] == null) return;
+            MapContact mc = mcs[i];
+            mc.contactText.text = Strip(mc.contactText.text);
+            mc.contactTextShort = Strip(mc.contactTextShort);
+            if (pf.currentTargetIndex == i && pf.contactDataName != null) pf.contactDataName.text = Strip(pf.contactDataName.text);
+            Color c = pf.sensormanager.GetContactColor(i);
+            mc.shipDisplayIcon.color = c; mc.contactText.color = c;
+        }
+
+        /// <summary>The game rewrites contact names and colours now and then; put the DECOY look back each frame.</summary>
         static void KeepMarks()
         {
             if (_marked.Count == 0) return;
-            MapContact[] mcs = UIFunctions.globaluifunctions.playerfunctions.sensormanager.tacticalmap.mapContact;
+            PlayerFunctions pf = UIFunctions.globaluifunctions.playerfunctions;
+            MapContact[] mcs = pf.sensormanager.tacticalmap.mapContact;
             foreach (int i in _marked)
-                if (i < mcs.Length && mcs[i] != null && !mcs[i].contactText.text.EndsWith(MarkSuffix)) mcs[i].contactText.text += MarkSuffix;
+            {
+                if (i >= mcs.Length || mcs[i] == null) continue;
+                MapContact mc = mcs[i];
+                if (!mc.contactText.text.EndsWith(MarkSuffix)) mc.contactText.text += MarkSuffix;
+                if (mc.contactTextShort != null && !mc.contactTextShort.EndsWith(MarkSuffix)) mc.contactTextShort += MarkSuffix;
+                if (pf.currentTargetIndex == i && pf.contactDataName != null && !pf.contactDataName.text.EndsWith(MarkSuffix)) pf.contactDataName.text += MarkSuffix;
+                if (mc.shipDisplayIcon != null && mc.shipDisplayIcon.color != MarkColor) mc.shipDisplayIcon.color = MarkColor;
+                if (mc.contactText.color != MarkColor) mc.contactText.color = MarkColor;
+            }
+        }
+
+        // ---------- DECOY button in the code book (signature panel), a copy of its MARK button ----------
+
+        static void SetupButton()
+        {
+            if (_decoyButton == null)
+            {
+                Button mark = null;
+                foreach (Button b in Resources.FindObjectsOfTypeAll<Button>())
+                {
+                    if (b == null || !b.gameObject.scene.IsValid()) continue; // skip prefab assets
+                    if (b.gameObject.name == "CWMP_DecoyButton") { _decoyButton = b.gameObject; break; }
+                    int n = b.onClick.GetPersistentEventCount();
+                    for (int k = 0; k < n; k++)
+                    {
+                        string m = b.onClick.GetPersistentMethodName(k);
+                        if (m == "SigAnalysisSet" || m == "ContactClassifiedManuallyByPlayer") mark = b;
+                    }
+                }
+                if (_decoyButton == null)
+                {
+                    if (mark == null)
+                    {
+                        if (!_buttonMissingLogged) { _buttonMissingLogged = true; Duel.Log("~Code book: MARK button not found, no DECOY button (Ctrl+F5 still works)"); }
+                        return;
+                    }
+                    _decoyButton = CloneButton(mark);
+                }
+            }
+            if (_decoyButton != null) _decoyButton.SetActive(true);
+        }
+
+        static GameObject CloneButton(Button mark)
+        {
+            Transform parent = mark.transform.parent;
+            string layout = "";
+            if (parent != null)
+                foreach (Button b in parent.GetComponentsInChildren<Button>(true))
+                {
+                    RectTransform br = b.GetComponent<RectTransform>();
+                    Text bt = b.GetComponentInChildren<Text>();
+                    layout += " " + b.gameObject.name + "\"" + (bt != null ? bt.text : "") + "\"" + (br != null ? "@" + br.anchoredPosition.x.ToString("F0") + "," + br.anchoredPosition.y.ToString("F0") : "");
+                }
+            Duel.Log("~Code book buttons:" + layout);
+
+            GameObject go = (GameObject)Object.Instantiate(mark.gameObject);
+            go.name = "CWMP_DecoyButton";
+            go.transform.SetParent(parent, false);
+            if (parent != null && parent.GetComponent<LayoutGroup>() != null)
+                go.transform.SetSiblingIndex(mark.transform.GetSiblingIndex() + 1);
+            else
+            {
+                RectTransform rt = go.GetComponent<RectTransform>(), mr = mark.GetComponent<RectTransform>();
+                if (rt != null && mr != null) rt.anchoredPosition = new Vector2(mr.anchoredPosition.x, mr.anchoredPosition.y - mr.rect.height * 1.15f); // just below MARK
+            }
+            TextLocaliser loc = go.GetComponentInChildren<TextLocaliser>();
+            if (loc != null) loc.enabled = false;
+            Text label = go.GetComponentInChildren<Text>();
+            if (label != null)
+            {
+                Text mt = mark.GetComponentInChildren<Text>();
+                string t = mt != null ? mt.text : null;
+                label.text = (t != null && t.Length > 0 && t == t.ToLowerInvariant()) ? "decoy"
+                           : (t != null && t.Length > 1 && t.Substring(1) == t.Substring(1).ToLowerInvariant()) ? "Decoy" : "DECOY";
+            }
+            Button btn = go.GetComponent<Button>();
+            btn.onClick = new Button.ButtonClickedEvent();
+            btn.onClick.AddListener(new UnityAction(delegate { ToggleMarkCurrent(); }));
+            Duel.Log("Code book: DECOY button added (same as Ctrl+F5)");
+            return go;
         }
     }
 
@@ -269,6 +438,17 @@ namespace ColdWatersMP
     static class Patch_SetTorpedoTargetsList
     {
         static void Postfix(Torpedo __instance) { Ghosts.RemoveFromTargets(__instance.targetsList); }
+    }
+
+    [HarmonyPatch(typeof(Torpedo), "CheckWithinSensorAngles")]
+    static class Patch_CheckWithinSensorAngles
+    {
+        // A torpedo that already passed a decoy no longer takes it as a target.
+        static bool Prefix(Torpedo __instance, Transform targetTransform, ref bool __result)
+        {
+            if (!Ghosts.Ignores(__instance, targetTransform)) return true;
+            __result = false; return false;
+        }
     }
 
     [HarmonyPatch(typeof(PlayerFunctions), "SetContactProfileSprite")]
