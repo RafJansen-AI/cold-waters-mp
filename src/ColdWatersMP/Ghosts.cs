@@ -175,8 +175,9 @@ namespace ColdWatersMP
                         Duel.Log("~Ghosts: ghost " + g.V.vesselListIndex + " gone");
                         g.TorpId = -1; Park(g.V);
                         int gi = g.V.vesselListIndex;
-                        bool had = _marked.Remove(gi) | _uncloaked.Remove(gi);
-                        if (had) Unmark(gi); // a reused ghost must not come back tagged
+                        bool wasUncloaked = _uncloaked.Remove(gi);
+                        bool had = _marked.Remove(gi) | wasUncloaked;
+                        if (had) Unmark(gi, wasUncloaked); // a reused ghost must not come back tagged
                         continue;
                     }
                     g.LastPos += g.Vel * Time.deltaTime; // keeps going straight while it fades
@@ -320,7 +321,9 @@ namespace ColdWatersMP
 
         static string Strip(string t) { return t != null && t.EndsWith(MarkSuffix) ? t.Substring(0, t.Length - MarkSuffix.Length) : t; }
 
-        static void Unmark(int i)
+        static void Unmark(int i) { Unmark(i, false); }
+
+        static void Unmark(int i, bool resetIcon)
         {
             PlayerFunctions pf = UIFunctions.globaluifunctions.playerfunctions;
             MapContact[] mcs = pf.sensormanager.tacticalmap.mapContact;
@@ -332,7 +335,9 @@ namespace ColdWatersMP
             Color c = pf.sensormanager.GetContactColor(i);
             mc.shipDisplayIcon.color = c; mc.contactText.color = c;
             // put the class icon back (the game sets it the same way when it classifies)
+            if (!resetIcon) return; // only an uncloaked contact had its icon changed
             SensorManager sm = pf.sensormanager;
+            mc.shipDisplayIcon.transform.rotation = Quaternion.identity;
             if (sm.classifiedByPlayer[i]) mc.shipDisplayIcon.sprite = sm.sonarPaintImages[sm.shipTypes[i]];
             else mc.shipDisplayIcon.sprite = sm.sonarPaintImages[0];
         }
