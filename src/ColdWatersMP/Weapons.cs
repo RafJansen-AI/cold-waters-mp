@@ -84,7 +84,7 @@ namespace ColdWatersMP
                 if (decoyed != _onNoisemaker.Contains(id))
                 {
                     if (decoyed) _onNoisemaker.Add(id); else _onNoisemaker.Remove(id);
-                    Duel.Log("Our torpedo #" + id + (decoyed ? " is going for a NOISEMAKER/DECOY" : " left the noisemaker/decoy"));
+                    Duel.Log("~Our torpedo #" + id + (decoyed ? " is going for a NOISEMAKER/DECOY" : " left the noisemaker/decoy"));
                 }
                 S.SendGame(G_TORP_STATE, w => { w.Write(id); w.Write(time); WriteV3(w, pos); WriteV3(w, eul); w.Write(homing); }, false);
             }

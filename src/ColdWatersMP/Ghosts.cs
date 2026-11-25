@@ -44,6 +44,7 @@ namespace ColdWatersMP
         public static void Setup()
         {
             Reset();
+            Duel.LastPuppetNoise = 100f; // the first sonar check sets the real value
             Vessel[] ev = GameDataManager.enemyvesselsonlevel;
             if (ev == null) return;
             _park = new Vector3(0f, 0f, ParkNm * Duel.UnitsPerNm);
@@ -61,7 +62,7 @@ namespace ColdWatersMP
 
         static void Park(Vessel v)
         {
-            Vector3 p = _park; p.y = v.transform.position.y;
+            Vector3 p = _park; p.y = 1000f - 200f / GameDataManager.unitsToFeet; // 200 ft: safe for every sub, never crushed
             v.transform.position = p;
             if (v.vesselmovement != null) { v.vesselmovement.telegraphValue = 0; Vector3 s = v.vesselmovement.shipSpeed; s.z = 0f; v.vesselmovement.shipSpeed = s; }
         }
@@ -120,6 +121,13 @@ namespace ColdWatersMP
             Transform tr = g.V.transform;
             tr.position = pos;
             tr.rotation = Quaternion.Euler(0f, heading, 0f);
+            // The game's speed field (knots / 10) for the lead marker, baffles and TMA displays.
+            VesselMovement m = g.V.vesselmovement;
+            if (m != null)
+            {
+                float knots = new Vector3(g.Vel.x, 0f, g.Vel.z).magnitude * 75.13f * 3600f / 2025.37f;
+                Vector3 s = m.shipSpeed; s.z = knots / 10f; m.shipSpeed = s;
+            }
         }
 
         public static void Update()
