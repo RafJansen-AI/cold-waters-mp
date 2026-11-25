@@ -234,10 +234,11 @@ namespace ColdWatersMP
             {
                 Duel.Log("Our torpedo passed a decoy (closest " + minYd.ToString("F0") + " yd), contact uncloaked as DECOY");
                 SensorManager sm = UIFunctions.globaluifunctions.playerfunctions.sensormanager;
-                string name = i < sm.initialDetectedByPlayerName.Length ? UIFunctions.globaluifunctions.playerfunctions.GetBasicContactName(sm.initialDetectedByPlayerName[i]) : "Contact";
+                string name = ContactName(i);
                 PlayerFunctions pf = UIFunctions.globaluifunctions.playerfunctions;
                 Color col; if (!pf.messageLogColors.TryGetValue("Sonar", out col)) col = MarkColor;
-                pf.PlayerMessage("Sonar: " + name + " reassessed as a DECOY, our torpedo passed it", col, "CWMP_Decoy");
+                // Never detected by our sonar: no message (it would tell the player about a contact they don't have).
+                if (name != null) pf.PlayerMessage("Sonar: " + name + " reassessed as a DECOY, our torpedo passed it", col, "CWMP_Decoy");
             }
             KeepMarks();
         }
@@ -258,6 +259,17 @@ namespace ColdWatersMP
                 return true;
             }
             return false;
+        }
+
+        /// <summary>The player's name for contact i (e.g. "S3"), or null if our sonar never detected it.</summary>
+        static string ContactName(int i)
+        {
+            PlayerFunctions pf = UIFunctions.globaluifunctions.playerfunctions;
+            SensorManager sm = pf.sensormanager;
+            if (sm.initialDetectedByPlayerName == null || i < 0 || i >= sm.initialDetectedByPlayerName.Length) return null;
+            string n = sm.initialDetectedByPlayerName[i];
+            if (string.IsNullOrEmpty(n)) return null;
+            try { return pf.GetBasicContactName(n); } catch (System.Exception) { return n; }
         }
 
         /// <summary>Torpedoes never pick a ghost as a target (the decoy copy itself is what seekers may chase).</summary>
@@ -420,7 +432,7 @@ namespace ColdWatersMP
             Unmark(i);
             PlayerFunctions pf = UIFunctions.globaluifunctions.playerfunctions;
             SensorManager sm = pf.sensormanager;
-            string name = i < sm.initialDetectedByPlayerName.Length ? pf.GetBasicContactName(sm.initialDetectedByPlayerName[i]) : "Contact";
+            string name = ContactName(i) ?? "the contact";
             Color col; if (!pf.messageLogColors.TryGetValue("Sonar", out col)) col = MarkColor;
             pf.PlayerMessage("Sonar: hit on " + name + ", that is the real submarine", col, "CWMP_RealSub");
             Duel.Log("Our torpedo hit a contact tagged decoy?: tag removed, it is the real sub");

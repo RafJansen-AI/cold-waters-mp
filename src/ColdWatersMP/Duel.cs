@@ -531,7 +531,7 @@ namespace ColdWatersMP
                 SendOwnState(OwnVessel());
             }
             DrivePuppet();
-            try { Ghosts.Update(); } catch (System.Exception ex) { Log("~Ghost update failed: " + ex.Message); }
+            try { Ghosts.Update(); } catch (System.Exception ex) { Log("~Ghost update failed: " + ex); }
             try { Ambient.Update(); } catch (System.Exception ex) { Log("~Neutral update failed: " + ex.Message); }
             Weapons.Update();
         }
