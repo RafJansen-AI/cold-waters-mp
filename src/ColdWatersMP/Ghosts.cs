@@ -413,13 +413,45 @@ namespace ColdWatersMP
                 go.transform.SetSiblingIndex(mark.transform.GetSiblingIndex() + 1);
             else
             {
+                // PREV, MARK, NEXT sit in a row: put ours one step right of the rightmost button in that row.
                 RectTransform rt = go.GetComponent<RectTransform>(), mr = mark.GetComponent<RectTransform>();
-                if (rt != null && mr != null) rt.anchoredPosition = new Vector2(mr.anchoredPosition.x, mr.anchoredPosition.y - mr.rect.height * 1.15f); // just below MARK
+                if (rt != null && mr != null)
+                {
+                    float right = mr.anchoredPosition.x, step = float.MaxValue;
+                    foreach (Button b in parent.GetComponentsInChildren<Button>(true))
+                    {
+                        if (b == mark || b.gameObject == go || b.transform.parent != parent) continue;
+                        RectTransform br = b.GetComponent<RectTransform>();
+                        if (br == null || Mathf.Abs(br.anchoredPosition.y - mr.anchoredPosition.y) > 2f) continue;
+                        float gap = Mathf.Abs(br.anchoredPosition.x - mr.anchoredPosition.x);
+                        if (gap > 1f && gap < step) step = gap;
+                        if (br.anchoredPosition.x > right) right = br.anchoredPosition.x;
+                    }
+                    if (step == float.MaxValue) step = mr.rect.height * 1.2f;
+                    rt.anchoredPosition = new Vector2(right + step, mr.anchoredPosition.y);
+                }
             }
             TextLocaliser loc = go.GetComponentInChildren<TextLocaliser>();
             if (loc != null) loc.enabled = false;
             Text label = go.GetComponentInChildren<Text>();
-            if (label != null)
+            if (label == null)
+            {
+                // Icon button with its caption elsewhere: give ours its own caption.
+                Text any = null;
+                foreach (Text tx in parent.GetComponentsInChildren<Text>(true)) { any = tx; break; }
+                if (any != null)
+                {
+                    GameObject cap = (GameObject)Object.Instantiate(any.gameObject);
+                    cap.transform.SetParent(go.transform, false);
+                    RectTransform cr = cap.GetComponent<RectTransform>();
+                    RectTransform mr2 = mark.GetComponent<RectTransform>();
+                    if (cr != null) cr.anchoredPosition = new Vector2(0f, mr2 != null ? -mr2.rect.height * 0.8f : 0f); // under the icon, like the others
+                    TextLocaliser cl = cap.GetComponent<TextLocaliser>(); if (cl != null) cl.enabled = false;
+                    label = cap.GetComponent<Text>();
+                    if (label != null) label.text = "DECOY";
+                }
+            }
+            else
             {
                 Text mt = mark.GetComponentInChildren<Text>();
                 string t = mt != null ? mt.text : null;
