@@ -928,24 +928,3 @@ namespace ColdWatersMP
         }
     }
 }
-
-namespace ColdWatersMP
-{
-    /// <summary>Below the hardest difficulty the game classifies a contact by itself once the TMA solution is good
-    /// (SensorManager.ContactClassified sets the true class), and the ID book then opens on that page. Against a human
-    /// that gives the opponent's sub away, so in a duel the opponent and its decoy ghosts are only classified by hand.</summary>
-    [HarmonyLib.HarmonyPatch(typeof(SensorManager), "ContactClassified")]
-    static class Patch_ContactClassified_Duel
-    {
-        static bool Prefix(int i)
-        {
-            if (!Duel.InDuel) return true;
-            try
-            {
-                Vessel v = GameDataManager.enemyvesselsonlevel[i];
-                return !Duel.IsRemote(v);
-            }
-            catch (System.Exception) { return true; }
-        }
-    }
-}
