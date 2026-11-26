@@ -151,6 +151,37 @@ function Do-Uninstall {
     Good 'Uninstalled.'
 }
 
+function Check-DotModData {
+    $chk = Join-Path $PSScriptRoot 'check-dotmod.ps1'
+    if (-not (Test-Path -LiteralPath $chk)) { return }
+    Say 'Checking DotMod game data against the official v0.4c files...'
+    $n = & $chk -GameDir $GameDir -NoPause | Select-Object -Last 1
+    if ($n -ne 0) { Warn ("Your DotMod data differs from the official v0.4c (listed above). Multiplayer refuses to connect two players whose data differs.`n" +
+        "If you use JSGME, disable and re-enable DotMod in JSGME, or restore the listed files.") }
+}
+
+# JSGME (mod manager): MODS\JSGME.ini lists the enabled mods, e.g. "DotMod=1".
+function Jsgme-Ini { Join-Path $GameDir 'MODS\JSGME.ini' }
+function Jsgme-Enabled($name) {
+    $ini = Jsgme-Ini
+    if (-not (Test-Path -LiteralPath $ini)) { return $false }
+    return [bool](@(Get-Content -LiteralPath $ini) | Where-Object { $_ -match ('^\s*' + [regex]::Escape($name) + '\s*=') })
+}
+
+function Install-ForJsgme {
+    if (Jsgme-Enabled 'ColdWatersMP') { Fail 'ColdWatersMP is enabled in JSGME. Disable it in JSGME first, then run this again to update it. Nothing was changed.' }
+    $dest = Join-Path $GameDir 'MODS\ColdWatersMP'
+    if (Test-Path -LiteralPath $dest) { Remove-Item -LiteralPath $dest -Recurse -Force }
+    New-Item -ItemType Directory -Path $dest | Out-Null
+    Copy-Item -Path (Join-Path $ModFiles '*') -Destination $dest -Recurse -Force
+    Get-ChildItem -LiteralPath $ModFiles -Force -File | Where-Object { $_.Name.StartsWith('.') } | ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $dest -Force }
+    Good "Cold Waters MP is ready in $dest"
+    Check-DotModData
+    Say ''
+    Say 'Now start JSGME (JSGME.exe in your Cold Waters folder), select ColdWatersMP and enable it. Keep DotMod enabled too.'
+    Say 'Then start Cold Waters: the main menu has a MULTIPLAYER button. Disable ColdWatersMP in JSGME to play without it.'
+}
+
 function Do-Install {
     if (-not (Test-Path -LiteralPath (Join-Path $ModFiles 'BepInEx\plugins\ColdWatersMP.dll'))) { Fail "The 'mod' folder is missing next to this script. Extract the whole setup zip first." }
     $dll = Join-Path $GameDir $DllRel
@@ -171,6 +202,9 @@ function Do-Install {
             "Restore the game (GOG: Manage installation > Verify / Repair; Steam: Verify integrity of game files), then run this again.`nNothing was changed.")
     }
 
+    if ($needDotMod -and -not $halfDone -and (Test-Path -LiteralPath (Jsgme-Ini)) -and (Test-Path -LiteralPath (Join-Path $GameDir 'MODS\DotMod'))) {
+        Fail 'DotMod is in your JSGME MODS folder but not enabled. Enable DotMod in JSGME, then run this again. Nothing was changed.'
+    }
     if ($needDotMod) {
         Say "DotMod is made by the DotMod team: $DotModPage"
         Say 'It is downloaded from their GitHub release (about 740 MB) and checked before anything is copied.'
@@ -205,17 +239,25 @@ function Do-Install {
         Remove-Item -LiteralPath $ex -Recurse -Force -ErrorAction SilentlyContinue
     }
 
+    # JSGME users get the mod as a JSGME mod (unless this setup already installed it directly here).
+    $direct = @($ml) -contains 'BepInEx\plugins\ColdWatersMP.dll'
+    if ((Test-Path -LiteralPath (Jsgme-Ini)) -and -not $direct) {
+        if (Test-Path -LiteralPath (Join-Path $GameDir 'winhttp.dll')) {
+            if (-not (Jsgme-Enabled 'ColdWatersMP')) {
+                Fail ("winhttp.dll (BepInEx) is already in the game folder, put there by hand or by another mod.`n" +
+                    "Remove the old Cold Waters MP files first (winhttp.dll, doorstop_config.ini, .doorstop_version, BepInEx folder), then run this again. Nothing was changed.")
+            }
+        }
+        $useJ = $Yes -or ((Read-Host 'JSGME found. Add Cold Waters MP as a JSGME mod (recommended)? N installs it directly into the game folder. (Y/N)') -match '^[Yy]')
+        if ($useJ) { Install-ForJsgme; if ($needDotMod) { Say "The DotMod download stays in $env:TEMP\ColdWatersMP-setup; you may delete it." }; return }
+    }
+    if (Jsgme-Enabled 'ColdWatersMP') { Fail 'ColdWatersMP is enabled in JSGME. Disable it there first (or update it through JSGME), so the two installs do not mix. Nothing was changed.' }
+
     if (-not (Test-Path -LiteralPath $script:ManifestPath)) { Set-Content -LiteralPath $script:ManifestPath -Value '# Files added by Cold Waters MP setup. Uninstall.cmd removes them.' -Encoding UTF8 }
     Say 'Installing Cold Waters MP...'
     Copy-Tree $ModFiles ''
     Good 'Cold Waters MP installed.'
-    $chk = Join-Path $PSScriptRoot 'check-dotmod.ps1'
-    if (Test-Path -LiteralPath $chk) {
-        Say 'Checking DotMod game data against the official v0.4c files...'
-        $n = & $chk -GameDir $GameDir -NoPause | Select-Object -Last 1
-        if ($n -ne 0) { Warn ("Your DotMod data differs from the official v0.4c (listed above). Multiplayer refuses to connect two players whose data differs.`n" +
-            "If you use JSGME, disable and re-enable DotMod in JSGME, or restore the listed files.") }
-    }
+    Check-DotModData
     Say ''
     Say 'Start Cold Waters. The main menu now has a MULTIPLAYER button.'
     Say 'To remove everything this setup added, run Uninstall.cmd.'

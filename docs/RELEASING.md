@@ -3,7 +3,7 @@
 Built on a PC with the game (the plugin compiles against the game's own DLLs; see `src/ColdWatersMP/build.cmd`).
 
 1. Set the version in `src/ColdWatersMP/Plugin.cs` and build `ColdWatersMP.dll` from the tagged commit.
-2. **Mod zip** `ColdWatersMP-<version>.zip`, JSGME layout: everything inside one top folder `ColdWatersMP-<version>/` that mirrors the game folder (users extract it into `MODS`):
+2. **Mod zip** `ColdWatersMP-<version>.zip`, JSGME layout: everything inside one top folder `ColdWatersMP/` that mirrors the game folder (users extract it into `MODS`):
    - the official BepInEx 5.4.23.2 x86 files, unchanged (`winhttp.dll`, `doorstop_config.ini`, `.doorstop_version`, `BepInEx/core/*`; not BepInEx's `changelog.txt`, which would overwrite the game's own)
    - everything in `package/` (BepInEx.cfg preset, BepInEx licence, mod licence, ColdWatersMP-README.txt; no plain README.txt, which could overwrite a game file)
    - `BepInEx/plugins/ColdWatersMP.dll`

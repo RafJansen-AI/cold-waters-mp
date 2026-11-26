@@ -1,6 +1,6 @@
 Cold Waters MP - 1v1 submarine duels for Cold Waters + DotMod
 
-JSGME: put this whole ColdWatersMP-<version> folder in your Cold Waters\MODS folder and enable it in JSGME.
+JSGME: put this whole ColdWatersMP folder in your Cold Waters\MODS folder and enable it in JSGME.
 Without JSGME: copy everything inside the folder into your Cold Waters folder (the one with ColdWaters.exe).
 New to modding? Use the Setup zip from the same Releases page instead: it installs DotMod and this mod for you.
 Full instructions, keys and troubleshooting: https://github.com/RafJansen-AI/cold-waters-mp

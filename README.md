@@ -26,15 +26,15 @@ Both players need the same game version, the same DotMod and the same mod versio
 
 Two downloads on the [Releases](../../releases) page (from 0.0.44 on), pick one:
 
-**A. Setup, for a clean game (no modding needed):** `ColdWatersMP-Setup-<version>.zip`. Extract it anywhere and double-click `Install.cmd`. It finds your Cold Waters folder, downloads DotMod v0.4c from the DotMod team's GitHub (about 740 MB, checked by SHA-256), installs it and then this mod. If DotMod is already installed, it only adds the mod. `Uninstall.cmd` puts back exactly what was there before.
+**A. Setup, for a clean game (no modding needed; with JSGME it adds the mod to JSGME):** `ColdWatersMP-Setup-<version>.zip`. Extract it anywhere and double-click `Install.cmd`. It finds your Cold Waters folder, downloads DotMod v0.4c from the DotMod team's GitHub (about 740 MB, checked by SHA-256), installs it and then this mod. If DotMod is already installed, it only adds the mod. `Uninstall.cmd` puts back exactly what was there before.
 
 **B. JSGME, if you already run DotMod with JSGME:** `ColdWatersMP-<version>.zip`.
 
-1. Extract the zip into the `MODS` folder in your Cold Waters folder (the one that holds `ColdWaters.exe`), so you get `MODS\ColdWatersMP-<version>`.
-2. Start JSGME and enable **ColdWatersMP-<version>** (DotMod stays enabled too).
+1. Extract the zip into the `MODS` folder in your Cold Waters folder (the one that holds `ColdWaters.exe`), so you get `MODS\ColdWatersMP`.
+2. Start JSGME and enable **ColdWatersMP** (DotMod stays enabled too).
 3. Start the game. The main menu now has a **MULTIPLAYER** button. Disable the mod in JSGME to play without it.
 
-Without JSGME you can also copy the *contents* of the `ColdWatersMP-<version>` folder into the Cold Waters folder, so that `winhttp.dll`, `doorstop_config.ini` and a `BepInEx` folder sit next to `ColdWaters.exe`.
+Without JSGME you can also copy the *contents* of the `ColdWatersMP` folder into the Cold Waters folder, so that `winhttp.dll`, `doorstop_config.ini` and a `BepInEx` folder sit next to `ColdWaters.exe`.
 
 Both contain [BepInEx 5](https://github.com/BepInEx/BepInEx) (x86), already set up for Cold Waters, plus the mod. No game or DotMod file is changed.
 
@@ -91,7 +91,7 @@ The source code is all here, so anyone can read what it does. Forks are welcome,
 ## Update
 
 - **Setup:** run the new setup's `Install.cmd`; it replaces the mod files.
-- **JSGME:** disable the old ColdWatersMP in JSGME, extract the new zip into `MODS` and enable it.
+- **JSGME:** disable ColdWatersMP in JSGME, delete `MODS\ColdWatersMP`, extract the new zip into `MODS` and enable it again. (The setup does the same for you: it sees JSGME and puts the mod in `MODS`.)
 - **Copied by hand:** close the game and copy the new files over the old ones.
 
 Your settings in `BepInEx\config\cwmp.cfg` are kept (the zip doesn't contain that file). Both players need the same version, or the join is refused with a message saying so.
