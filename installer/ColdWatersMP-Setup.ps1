@@ -117,7 +117,10 @@ function Remove-EmptyDirs($top) {
 }
 
 function Do-Uninstall {
-    if (-not (Test-Path -LiteralPath $script:ManifestPath)) { Fail "No $Manifest in this folder: this setup didn't install anything here. Nothing was changed." }
+    if (-not (Test-Path -LiteralPath $script:ManifestPath)) {
+        if (Test-Path -LiteralPath (Join-Path $GameDir 'MODS\ColdWatersMP')) { Fail "Cold Waters MP was added as a JSGME mod here. Disable ColdWatersMP in JSGME, then delete the MODS\ColdWatersMP folder. Nothing was changed." }
+        Fail "No $Manifest in this folder: this setup didn't install anything here. Nothing was changed."
+    }
     $lines = @(Get-Content -LiteralPath $script:ManifestPath)
     $added = @($lines | Where-Object { $_ -and -not $_.StartsWith('#') -and -not $_.Contains('..') })
     $repl  = @($lines | Where-Object { $_ -like '#replaced *' })
@@ -248,6 +251,7 @@ function Do-Install {
                     "Remove the old Cold Waters MP files first (winhttp.dll, doorstop_config.ini, .doorstop_version, BepInEx folder), then run this again. Nothing was changed.")
             }
         }
+        if (Jsgme-Enabled 'ColdWatersMP') { Fail 'ColdWatersMP is enabled in JSGME. Disable it in JSGME first, then run this again to update it. Nothing was changed.' }
         $useJ = $Yes -or ((Read-Host 'JSGME found. Add Cold Waters MP as a JSGME mod (recommended)? N installs it directly into the game folder. (Y/N)') -match '^[Yy]')
         if ($useJ) { Install-ForJsgme; if ($needDotMod) { Say "The DotMod download stays in $env:TEMP\ColdWatersMP-setup; you may delete it." }; return }
     }
