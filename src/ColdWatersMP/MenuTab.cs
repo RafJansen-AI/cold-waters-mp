@@ -101,6 +101,7 @@ namespace ColdWatersMP
             btn.onClick.AddListener(new UnityAction(delegate { if (OpenWindow != null) OpenWindow(); }));
             go.SetActive(true);
             Duel.Log("Main menu (" + which + "): MULTIPLAYER button added");
+            HudSelfTest.RunOnce();
             return go;
         }
 

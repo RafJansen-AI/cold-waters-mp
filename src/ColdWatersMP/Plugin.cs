@@ -44,7 +44,8 @@ namespace ColdWatersMP
             _playerName = Config.Bind("Player", "Name", "Player", "Shown to your opponent");
             _devKeys = Config.Bind("Debug", "DevKeys", false, "Testing only: Ctrl+F7 teleport, Ctrl+F11 test chat, full overlay and FakeDllHash. Off in normal play (the teleport is a cheat).");
             DevKeysOn = _devKeys.Value;
-            Ambient.ForceWhales = Config.Bind("Debug", "ForceWhales", false, "Testing only (needs DevKeys): every duel with traffic on gets whales").Value && _devKeys.Value;
+            HudSelfTest.Mode = Config.Bind("Debug", "HudSelfTest", 0, "Testing only (needs DevKeys): at the main menu run BuildHUD with alternating HUD files and log the helm toolbars. 0 off, 1 fix off, 2 fix on").Value;
+            Ambient.ForceWhales =Config.Bind("Debug", "ForceWhales", false, "Testing only (needs DevKeys): every duel with traffic on gets whales").Value && _devKeys.Value;
             _fakeHash = Config.Bind("Debug", "FakeDllHash", "", "Testing only (needs DevKeys): pretend Assembly-CSharp.dll has this hash");
             _rangeMin = Config.Bind("Duel", "RangeMinNm", 4f, "Host: shortest starting distance (the actual one is random in the band)");
             _rangeMax = Config.Bind("Duel", "RangeMaxNm", 9f, "Host: longest starting distance");
@@ -131,6 +132,7 @@ namespace ColdWatersMP
 
         void Update()
         {
+            HudSelfTest.Tick();
             // All mod keys are Ctrl + F-key: the plain F-keys belong to the game (F6 signature, F7 stores, F8 damage,
             // F9 time compression, F10 hide HUD, F11 stop time compression).
             bool ctrl = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
