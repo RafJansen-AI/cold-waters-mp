@@ -112,6 +112,27 @@ namespace ColdWatersMP
             return null;
         }
 
+        /// <summary>The opponent-side slots whose contacts follow the track rule (Tracks): the puppet and every ghost.</summary>
+        public static void OpponentSlots(List<int> into)
+        {
+            into.Clear();
+            if (Duel.Puppet != null) into.Add(Duel.Puppet.vesselListIndex);
+            foreach (Ghost g in _ghosts) if (g.V != null) into.Add(g.V.vesselListIndex);
+        }
+
+        public static bool IsUncloaked(int i) { return _uncloaked.Contains(i); }
+
+        /// <summary>A contact track moved to another slot: the player's "decoy?" note goes with it.</summary>
+        public static void MoveTrackMarks(int from, int to)
+        {
+            bool note = _marked.Remove(from), confirmed = _uncloaked.Remove(from);
+            if (note || confirmed) Unmark(from);
+            if (note) _marked.Add(to);
+        }
+
+        /// <summary>A contact track was dropped: no tag survives on that slot.</summary>
+        public static void ClearMarks(int i) { if (_marked.Remove(i) | _uncloaked.Remove(i)) Unmark(i); }
+
         public static bool IsDecoy(DatabaseWeaponData wd) { return wd != null && (wd.weaponType == "DECOY" || wd.isDecoy); }
 
         /// <summary>The opponent launched a decoy; t is its hidden copy here.</summary>
@@ -122,9 +143,12 @@ namespace ColdWatersMP
             foreach (Renderer r in t.GetComponentsInChildren<Renderer>(true)) r.enabled = false;
             if (t.tacMapTorpedoIcon != null) t.tacMapTorpedoIcon.gameObject.SetActive(false);
 
+            // Prefer a free ghost without a contact track: reusing a named one has to drop its (faded) track now.
             Ghost g = null;
-            foreach (Ghost x in _ghosts) if (x.TorpId < 0 && x.V != null) { g = x; break; }
+            foreach (Ghost x in _ghosts)
+                if (x.TorpId < 0 && x.V != null && (g == null || (Tracks.HasName(g.V.vesselListIndex) && !Tracks.HasName(x.V.vesselListIndex)))) g = x;
             if (g == null) { Duel.Log("~Ghosts: no free ghost for decoy #" + torpId); return; }
+            Tracks.Drop(g.V.vesselListIndex, "ghost reused for decoy #" + torpId);
             float ydsPerSec = Mathf.Max(1f, wd.runSpeed) * 2025.37f / 3600f;
             float run = wd.rangeInYards > 0f ? wd.rangeInYards / ydsPerSec : 1200f;
             g.TorpId = torpId; g.T = t; g.Start = Time.time; g.Until = Time.time + run + 10f; g.FadeOutStart = -1f;

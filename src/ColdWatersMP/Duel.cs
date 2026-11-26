@@ -45,6 +45,7 @@ namespace ColdWatersMP
                     + " | our active " + own.acoustics.usingActiveSonar
                     + " | ENV ambient " + sm.currentOceanAmbientNoise.ToString("F1") + ", layer " + sm.layerDepthInFeet.ToString("F0") + " ft str " + sm.layerStrength.ToString("F2")
                     + ", duct " + sm.surfaceDuctStrength.ToString("F2") + ", sea " + sm.seaState);
+                Log("~TRACKS " + Tracks.Describe());
             }
             catch (System.Exception ex) { Log("SONAR diagnostics failed: " + ex.Message); }
         }
@@ -536,6 +537,7 @@ namespace ColdWatersMP
             EnvSync.HostNewSeed(); // host: new ocean for the next mission (the client keeps the latest seed it got)
             Weapons.Reset();
             Ghosts.Reset();
+            Tracks.Reset();
             Ambient.Reset();
         }
 
@@ -557,6 +559,7 @@ namespace ColdWatersMP
             }
             DrivePuppet();
             try { Ghosts.Update(); } catch (System.Exception ex) { Log("~Ghost update failed: " + ex); }
+            try { Tracks.Update(); } catch (System.Exception ex) { Log("~Track update failed: " + ex.Message); }
             try { Ambient.Update(); } catch (System.Exception ex) { Log("~Neutral update failed: " + ex.Message); }
             Weapons.Update();
         }
