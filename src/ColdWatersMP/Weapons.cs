@@ -19,7 +19,7 @@ namespace ColdWatersMP
             public Vector3 Pos0, Pos1; public Vector3 Euler1; public float T0, T1, Local1; public int Count;
             public float SpawnLocal; public float EndAt = -1f; public bool Homing; public bool Armed;
             public float LastHoming = -100f; public bool HomingLogged; public bool DroppedPayload; public bool Payload; public bool Decoy;
-            public int IconState = -1; // last logged map icon state (-1 unknown, 0 hidden, 1 shown)
+            public int IconState = -1, IconChanges; // last logged map icon state (-1 unknown, 0 hidden, 1 shown), changes logged
         }
 
         static int _nextId = 1;
@@ -152,21 +152,31 @@ namespace ColdWatersMP
             }
             if (!payload) OppFired++;
             Duel.Log("Opponent fired torpedo #" + id + " (" + wd.weaponName + ")");
-            if (payload) return; // dropped by a rocket far from the firer: no launch transient
-            try { LaunchTransient(Duel.Puppet, wd); }
-            catch (System.Exception ex) { Duel.Log("Launch transient check failed: " + ex.Message); }
+            bool heard = false;
+            if (!payload) // dropped by a rocket far from the firer: no launch transient
+            {
+                try { heard = LaunchTransient(Duel.Puppet, wd); }
+                catch (System.Exception ex) { Duel.Log("Launch transient check failed: " + ex.Message); }
+            }
+            // A new torpedo's map icon starts visible until the game's next sonar check (about 1 s): an unheard
+            // launch showed as a brief icon with no callout (duel test 26 Nov). Hide it; the sonar shows it when detected.
+            if (!heard)
+            {
+                try { if (t.tacMapTorpedoIcon != null) t.tacMapTorpedoIcon.gameObject.SetActive(false); }
+                catch (System.Exception ex) { Duel.Log("~Torpedo icon hide failed: " + ex.Message); }
+            }
         }
 
         /// <summary>Same rule as the AI's launch (Enemy_Torpedo.FireTorpedo): if our sonar can hear the
         /// launch transient, give the "launch transient" sonar report with its bearing.</summary>
-        static void LaunchTransient(Vessel firer, DatabaseWeaponData wd)
+        static bool LaunchTransient(Vessel firer, DatabaseWeaponData wd)
         {
             Vessel own = GameDataManager.playervesselsonlevel[0];
-            if (own == null || firer == null || wd.swimOut) return;
+            if (own == null || firer == null || wd.swimOut) return false;
             PlayerFunctions pf = UIFunctions.globaluifunctions.playerfunctions;
             SensorManager sm = pf.sensormanager;
             float heard = sm.CheckCanHearTransient(own, firer);
-            if (heard <= 10f) { Duel.Log("Launch transient not heard (" + heard.ToString("F1") + ")"); return; }
+            if (heard <= 10f) { Duel.Log("Launch transient not heard (" + heard.ToString("F1") + ")"); return false; }
             Transform nav = own.acoustics.sensorNavigator.transform;
             nav.LookAt(firer.transform.position);
             float brg = nav.eulerAngles.y; // true bearing, as in the TorpedoInTheWater callout (the AI-launch code uses local)
@@ -182,6 +192,7 @@ namespace ColdWatersMP
             msg = msg.Replace("<BRG>", brg.ToString("0"));
             pf.PlayerMessage(msg, pf.messageLogColors["Sonar"], "TransientKnown");
             Duel.Log("Launch transient heard (" + heard.ToString("F1") + "), bearing " + brg.ToString("0"));
+            return true;
         }
 
         /// <summary>Called from the Torpedo.FixedUpdate prefix for puppet torpedoes instead of the game's logic.</summary>
@@ -228,14 +239,16 @@ namespace ColdWatersMP
             Vessel own = GameDataManager.playervesselsonlevel[0];
             // Hold the lock for 2 s after the flag drops: states are unreliable and seekers flicker.
             if (own != null) t.targetTransform = (inc.Homing || Time.time - inc.LastHoming < 2f) ? own.transform : null;
-            // Diagnostics: log when the opponent torpedo's map icon shows or hides (brief icon at launch).
-            if (!inc.Decoy && t.tacMapTorpedoIcon != null)
+            // Diagnostics: log the first few times the opponent torpedo's map icon shows or hides (it blinks with
+            // the sonar's detection checks afterwards).
+            if (!inc.Decoy && t.tacMapTorpedoIcon != null && inc.IconChanges < 4)
             {
                 int icon = t.tacMapTorpedoIcon.gameObject.activeInHierarchy ? 1 : 0;
                 if (icon != inc.IconState)
                 {
                     Duel.Log("~Opponent torpedo #" + id + " map icon " + (icon == 1 ? "shown" : "hidden") + " at +" + (Time.time - inc.SpawnLocal).ToString("F1") + " s");
                     inc.IconState = icon;
+                    inc.IconChanges++;
                 }
             }
 
