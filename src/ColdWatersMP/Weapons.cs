@@ -19,6 +19,7 @@ namespace ColdWatersMP
             public Vector3 Pos0, Pos1; public Vector3 Euler1; public float T0, T1, Local1; public int Count;
             public float SpawnLocal; public float EndAt = -1f; public bool Homing; public bool Armed;
             public float LastHoming = -100f; public bool HomingLogged; public bool DroppedPayload; public bool Payload; public bool Decoy;
+            public int IconState = -1; // last logged map icon state (-1 unknown, 0 hidden, 1 shown)
         }
 
         static int _nextId = 1;
@@ -136,6 +137,9 @@ namespace ColdWatersMP
             if (payload) t.isAirborne = true;
             _puppetTorps.Add(t);
             UIFunctions.globaluifunctions.playerfunctions.sensormanager.AddTorpedoToArray(t);
+            // As Enemy_Torpedo.FireTorpedo: an enemy torpedo's map icon carries no label.
+            try { if (t.tacMapTorpedoIcon != null && t.tacMapTorpedoIcon.contactText != null) t.tacMapTorpedoIcon.contactText.gameObject.SetActive(false); }
+            catch (System.Exception ex) { Duel.Log("~Torpedo label hide failed: " + ex.Message); }
             bool decoy = Ghosts.IsDecoy(wd);
             Incoming inc = new Incoming { T = t, Pos0 = pos, Pos1 = pos, Euler1 = eul, T0 = 0, T1 = 0, Local1 = Time.time, Count = 0, SpawnLocal = Time.time, Payload = payload, Decoy = decoy };
             _incoming[id] = inc;
@@ -224,6 +228,16 @@ namespace ColdWatersMP
             Vessel own = GameDataManager.playervesselsonlevel[0];
             // Hold the lock for 2 s after the flag drops: states are unreliable and seekers flicker.
             if (own != null) t.targetTransform = (inc.Homing || Time.time - inc.LastHoming < 2f) ? own.transform : null;
+            // Diagnostics: log when the opponent torpedo's map icon shows or hides (brief icon at launch).
+            if (!inc.Decoy && t.tacMapTorpedoIcon != null)
+            {
+                int icon = t.tacMapTorpedoIcon.gameObject.activeInHierarchy ? 1 : 0;
+                if (icon != inc.IconState)
+                {
+                    Duel.Log("~Opponent torpedo #" + id + " map icon " + (icon == 1 ? "shown" : "hidden") + " at +" + (Time.time - inc.SpawnLocal).ToString("F1") + " s");
+                    inc.IconState = icon;
+                }
+            }
 
             Vector3 target = inc.Pos1;
             float dt = inc.T1 - inc.T0;

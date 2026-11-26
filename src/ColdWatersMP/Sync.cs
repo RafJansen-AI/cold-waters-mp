@@ -94,6 +94,16 @@ namespace ColdWatersMP
             if (TCOn || _ownWantsTC) { _ownWantsTC = false; if (TCOn) _oppWantsTC = false; Send(G_TC, false); Duel.Log("Time compression stopped/withdrawn"); }
         }
 
+        /// <summary>PlayerMessage postfix: a crew callout of a launch transient or a torpedo locking on to us
+        /// ("torpedo in the water") stops time compression, for both. The base game doesn't do this itself.</summary>
+        public static void OnPlayerMessage(string key)
+        {
+            if (!Duel.InDuel || _bypass || PF == null || !TCOn) return;
+            if (key != "TransientKnown" && key != "TransientUnknown" && key != "TorpedoInTheWater") return;
+            Duel.Log("Time compression stopped by callout " + key);
+            PF.SetTimeCompression(); // our prefix: turning off stops it for the opponent too
+        }
+
         // ---- pause ----
 
         /// <summary>BringInExitMenu postfix: the menu paused us (timeScale 0).</summary>
@@ -167,6 +177,17 @@ namespace ColdWatersMP
     static class Patch_StopTimeCompression
     {
         static void Prefix() { TimeSync.OnStopTimeCompression(); }
+    }
+
+    [HarmonyPatch(typeof(PlayerFunctions), "PlayerMessage")]
+    static class Patch_PlayerMessage
+    {
+        // __2 = the message key (3rd parameter).
+        static void Postfix(string __2)
+        {
+            try { TimeSync.OnPlayerMessage(__2); }
+            catch (System.Exception ex) { Duel.Log("Callout TC stop failed: " + ex.Message); }
+        }
     }
 
     [HarmonyPatch(typeof(MissionManager), "DismissExitMenu")]
