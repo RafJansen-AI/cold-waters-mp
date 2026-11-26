@@ -27,7 +27,7 @@ namespace ColdWatersMP
         int _overlayMode; // 0 full, 1 compact, 2 off
         bool _showSettings;
         ConfigEntry<int> _overlayCfg;
-        ConfigEntry<int> _cond, _weather, _sea, _layer, _duct, _time;
+        ConfigEntry<int> _cond, _weather, _sea, _layer, _duct, _time, _ambient;
         ConfigEntry<bool> _pauseBoth, _allowTC;
         ConfigEntry<bool> _reducedVis;
         ConfigEntry<int> _traffic;
@@ -55,6 +55,7 @@ namespace ColdWatersMP
             _layer = Config.Bind("Match", "Layer", 0, "Host, custom: 0 = random, 1..6 = none .. strongest");
             _duct = Config.Bind("Match", "Duct", 0, "Host, custom: 0 = random, 1..6 = none .. strongest");
             _time = Config.Bind("Match", "Time", 0, "Host, custom: 0 random, 1 dawn, 2 day, 3 dusk, 4 night");
+            _ambient = Config.Bind("Match", "AmbientNoise", 0, "Host, custom: 0 = from sea state and weather, 1..10 = fixed 65..110 dB");
             _pauseBoth = Config.Bind("Match", "PauseBoth", false, "Host: true = the Esc menu pauses both games; false = no pausing");
             _allowTC = Config.Bind("Match", "TimeCompression", true, "Host: allow time compression when both players ask for it");
             _reducedVis = Config.Bind("Match", "ReducedVisibility", true, "Host: DotMod Reduced Visibility (denser underwater fog) for both players; false = clear water");
@@ -168,7 +169,7 @@ namespace ColdWatersMP
         {
             Match.Conditions = (Match.CondMode)Mathf.Clamp(_cond.Value, 0, 2);
             Match.Weather = _weather.Value; Match.SeaState = _sea.Value; Match.Layer = _layer.Value;
-            Match.Duct = _duct.Value; Match.TimeChoice = _time.Value;
+            Match.Duct = _duct.Value; Match.TimeChoice = _time.Value; Match.AmbientChoice = Mathf.Clamp(_ambient.Value, 0, Match.AmbientChoices);
             Match.HostPauseBoth = _pauseBoth.Value; Match.HostAllowTC = _allowTC.Value; Match.HostReducedVisibility = _reducedVis.Value;
             Ambient.HostLevel = (Ambient.Level)Mathf.Clamp(_traffic.Value, 0, 4);
         }
@@ -176,7 +177,7 @@ namespace ColdWatersMP
         void SaveMatchSettings()
         {
             _cond.Value = (int)Match.Conditions; _weather.Value = Match.Weather; _sea.Value = Match.SeaState;
-            _layer.Value = Match.Layer; _duct.Value = Match.Duct; _time.Value = Match.TimeChoice;
+            _layer.Value = Match.Layer; _duct.Value = Match.Duct; _time.Value = Match.TimeChoice; _ambient.Value = Match.AmbientChoice;
             _rangeMin.Value = Duel.RangeMinNm; _rangeMax.Value = Duel.RangeMaxNm;
             _pauseBoth.Value = Match.HostPauseBoth; _allowTC.Value = Match.HostAllowTC; _reducedVis.Value = Match.HostReducedVisibility;
             _traffic.Value = (int)Ambient.HostLevel;
@@ -273,7 +274,7 @@ namespace ColdWatersMP
                 return;
             }
             GUILayout.Label("Map: the single mission you start (its ships are removed).");
-            int before = (int)Match.Conditions * 1000 + Match.Weather * 100 + Match.SeaState * 10 + Match.Layer + Match.Duct * 7 + Match.TimeChoice * 13;
+            int before = (int)Match.Conditions * 1000 + Match.Weather * 100 + Match.SeaState * 10 + Match.Layer + Match.Duct * 7 + Match.TimeChoice * 13 + Match.AmbientChoice * 100000;
             float rangeBefore = Duel.RangeMinNm * 100f + Duel.RangeMaxNm;
             string[] modes = { "As the mission says", "Random (same for both)", "Custom" };
             Match.Conditions = (Match.CondMode)Stepper("Conditions", (int)Match.Conditions, 3, modes[(int)Match.Conditions]);
@@ -288,6 +289,8 @@ namespace ColdWatersMP
                 Match.Layer = Stepper("Layer", Mathf.Clamp(Match.Layer, 0, str.Length), str.Length + 1, Match.Layer == 0 ? "Random" : Match.Name(str, Match.Layer - 1));
                 Match.Duct = Stepper("Surface duct", Mathf.Clamp(Match.Duct, 0, str.Length), str.Length + 1, Match.Duct == 0 ? "Random" : Match.Name(str, Match.Duct - 1));
                 Match.TimeChoice = Stepper("Time", Mathf.Clamp(Match.TimeChoice, 0, 4), 5, Match.TimeNames[Mathf.Clamp(Match.TimeChoice, 0, 4)]);
+                Match.AmbientChoice = Stepper("Ambient noise", Mathf.Clamp(Match.AmbientChoice, 0, Match.AmbientChoices), Match.AmbientChoices + 1,
+                    Match.AmbientChoice == 0 ? "From sea and weather" : Match.AmbientDb(Match.AmbientChoice).ToString("0") + " dB (ignores weather)");
             }
             // Start range band, in the game's units (kyd, or km with the metric option); stored in nm. The actual
             // range is random inside the band and not shown to anyone.
@@ -307,7 +310,7 @@ namespace ColdWatersMP
             GUILayout.Label("Difficulty: yours (set it in the game options); the client uses it too.");
             GUILayout.Label("Settings apply from the next mission start.");
             if (Match.LastSummary.Length > 0) GUILayout.Label("Last match: " + Match.LastSummary);
-            int after = (int)Match.Conditions * 1000 + Match.Weather * 100 + Match.SeaState * 10 + Match.Layer + Match.Duct * 7 + Match.TimeChoice * 13;
+            int after = (int)Match.Conditions * 1000 + Match.Weather * 100 + Match.SeaState * 10 + Match.Layer + Match.Duct * 7 + Match.TimeChoice * 13 + Match.AmbientChoice * 100000;
             if (after != before || rangeBefore != Duel.RangeMinNm * 100f + Duel.RangeMaxNm) SaveMatchSettings();
             GUI.DragWindow();
         }

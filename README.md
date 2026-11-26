@@ -53,7 +53,7 @@ The zip contains [BepInEx 5](https://github.com/BepInEx/BepInEx) (x86), already 
 
 **Disconnect** (or **Stop hosting**) in the window ends the connection; during a duel it asks for a second click.
 
-Host settings in the MULTIPLAYER window (Ctrl+F6): conditions (as the mission, random, or custom), starting range, pause, time compression, Reduced Visibility and neutral traffic.
+Host settings in the MULTIPLAYER window (Ctrl+F6): conditions (as the mission, random, or custom, including a fixed ambient noise level), starting range, pause, time compression, Reduced Visibility and neutral traffic.
 
 ## Keys
 

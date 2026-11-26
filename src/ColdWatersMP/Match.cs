@@ -21,6 +21,20 @@ namespace ColdWatersMP
         public static int Layer = 0;        // 0 = random, else strengthTypes index + 1 (strength = idx / 5)
         public static int Duct = 0;         // same
         public static int TimeChoice = 0;   // 0 random, 1 dawn, 2 day, 3 dusk, 4 night
+        public static int AmbientChoice = 0; // custom: 0 = from sea state and weather, n = fixed AmbientDb(n)
+        public const int AmbientChoices = 10; // fixed 65 .. 110 dB in steps of 5
+        public static float AmbientDb(int choice) { return 60f + 5f * choice; }
+        static float _matchAmbient = -1f, _clientAmbient = -1f; // fixed ambient for this match, -1 = the game's own
+        public static float AmbientInForce = -1f;
+
+        /// <summary>SensorManager.InitialiseOceanCharacteristics postfix: a fixed ambient noise for both games.</summary>
+        public static void HoldAmbient(SensorManager sm)
+        {
+            if (AmbientInForce < 0f || sm == null) return;
+            float game = sm.currentOceanAmbientNoise;
+            sm.currentOceanAmbientNoise = AmbientInForce;
+            Duel.Log("Ambient noise for this match: " + AmbientInForce.ToString("0") + " dB (host's setting; the sea and weather gave " + game.ToString("0.0") + ")");
+        }
         public static bool HostPauseBoth = false;  // host setting: Esc menu pauses both games (else pause is blocked)
         public static bool HostAllowTC = true;     // host setting: time compression by mutual agreement
         public static bool HostReducedVisibility = true; // host setting: DotMod's Reduced Visibility (denser underwater fog) for both
@@ -165,6 +179,8 @@ namespace ColdWatersMP
             _lastSent = Take(d);
             _lastSentSeq = ++_sentSeq;
             _matchPauseBoth = HostPauseBoth; _matchAllowTC = HostAllowTC; _matchReducedVis = HostReducedVisibility;
+            _matchAmbient = Conditions == CondMode.Custom && AmbientChoice > 0 ? AmbientDb(AmbientChoice) : -1f;
+            AmbientInForce = _matchAmbient;
             ApplyVisibility(_matchReducedVis);
             Ambient.HostRoll(d);
             SendLast();
@@ -179,7 +195,7 @@ namespace ColdWatersMP
         static void SendLast()
         {
             Snapshot s = _lastSent; int seq = _lastSentSeq;
-            bool pause = _matchPauseBoth, tc = _matchAllowTC, vis = _matchReducedVis;
+            bool pause = _matchPauseBoth, tc = _matchAllowTC, vis = _matchReducedVis; float amb = _matchAmbient;
             Dictionary<string, float> diff = OptionsManager.difficultySettings != null ? new Dictionary<string, float>(OptionsManager.difficultySettings) : new Dictionary<string, float>();
             Duel.Session.SendGame(G_MATCH, w =>
             {
@@ -187,6 +203,7 @@ namespace ColdWatersMP
                 w.Write(diff.Count);
                 foreach (KeyValuePair<string, float> kv in diff) { w.Write(kv.Key); w.Write(kv.Value); }
                 Ambient.Write(w);
+                w.Write(amb);
             }, true);
             LastSummary = Describe(s);
             Duel.Log("Match sent: " + LastSummary);
@@ -200,6 +217,7 @@ namespace ColdWatersMP
             AppliedSeq = _hostSeq;
             ApplyHostDifficulty();
             ApplyVisibility(_clientReducedVis);
+            AmbientInForce = _clientAmbient;
             LastSummary = Describe(_host);
             Duel.Log("Match applied from host: " + LastSummary);
         }
@@ -226,6 +244,7 @@ namespace ColdWatersMP
         /// <summary>Mission over: give the client its own difficulty back.</summary>
         public static void RestoreLocalDifficulty()
         {
+            AmbientInForce = -1f;
             RestoreVisibility();
             if (_savedDifficulty == null || OptionsManager.difficultySettings == null) return;
             foreach (KeyValuePair<string, float> kv in _savedDifficulty) OptionsManager.difficultySettings[kv.Key] = kv.Value;
@@ -267,6 +286,7 @@ namespace ColdWatersMP
                     + ", layer " + (s.Layer < 0f ? "random" : s.Layer.ToString("0.0")) + ", duct " + (s.Duct < 0f ? "random" : s.Duct.ToString("0.0"))
                     + ", " + s.TimeString;
             }
+            if (s == _lastSent ? _matchAmbient >= 0f : (s == _host && _clientAmbient >= 0f)) env += ", ambient " + (s == _lastSent ? _matchAmbient : _clientAmbient).ToString("0") + " dB";
             return "map '" + s.MissionName + "' at " + s.MapPosition.x.ToString("0") + "," + s.MapPosition.y.ToString("0") + (s.UseTerrain ? " (terrain)" : "")
                 + ", " + s.Date + ", " + env;
         }
@@ -284,9 +304,11 @@ namespace ColdWatersMP
             Dictionary<string, float> diff = new Dictionary<string, float>();
             for (int i = 0; i < n; i++) { string k = r.ReadString(); diff[k] = r.ReadSingle(); }
             Ambient.Read(r, !Duel.Session.IsHost);
+            float amb = r.ReadSingle();
+            if (amb > 200f) throw new System.IO.IOException("bad match message");
             if (Duel.Session.IsHost) return true; // only the host decides
             _hostDifficulty = diff;
-            _clientPauseBoth = pause; _clientAllowTC = tc; _clientReducedVis = vis;
+            _clientPauseBoth = pause; _clientAllowTC = tc; _clientReducedVis = vis; _clientAmbient = amb;
             _host = s; _hostSeq = seq; _haveHostMatch = true;
             HostMapName = s.MissionName;
             Duel.Log("Host picked " + Describe(s));
@@ -360,5 +382,14 @@ namespace ColdWatersMP
             }
             return ids.ToArray();
         }
+    }
+}
+
+namespace ColdWatersMP
+{
+    [HarmonyLib.HarmonyPatch(typeof(SensorManager), "InitialiseOceanCharacteristics")]
+    static class Patch_InitialiseOcean_Ambient
+    {
+        static void Postfix(SensorManager __instance) { try { Match.HoldAmbient(__instance); } catch (System.Exception ex) { Duel.Log("~Ambient hold failed: " + ex.Message); } }
     }
 }
