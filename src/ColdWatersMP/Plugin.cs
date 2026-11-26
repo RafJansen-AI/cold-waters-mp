@@ -307,7 +307,7 @@ namespace ColdWatersMP
             Match.HostReducedVisibility = Stepper("Visibility", Match.HostReducedVisibility ? 1 : 0, 2, Match.HostReducedVisibility ? "Reduced Visibility on" : "Reduced Visibility off") == 1;
             Ambient.HostLevel = (Ambient.Level)Stepper("Traffic", (int)Ambient.HostLevel, 5, Ambient.LevelText(Ambient.HostLevel));
             if (pb != Match.HostPauseBoth || tc != Match.HostAllowTC || rv != Match.HostReducedVisibility || tl != Ambient.HostLevel) rangeBefore = -1f; // force a save
-            GUILayout.Label("Difficulty: yours (set it in the game options); the client uses it too.");
+            GUILayout.Label("Difficulty: yours (set it in the game options); the client uses it too. Contact noise is not scaled by difficulty in duels.");
             GUILayout.Label("Settings apply from the next mission start.");
             if (Match.LastSummary.Length > 0) GUILayout.Label("Last match: " + Match.LastSummary);
             int after = (int)Match.Conditions * 1000 + Match.Weather * 100 + Match.SeaState * 10 + Match.Layer + Match.Duct * 7 + Match.TimeChoice * 13 + Match.AmbientChoice * 100000;

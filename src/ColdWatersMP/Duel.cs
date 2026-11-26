@@ -835,6 +835,33 @@ namespace ColdWatersMP
             }
         }
     }
+
+    /// <summary>Difficulty: SaveVesselAcoustics multiplies every non-player vessel's noise (a dB value) by
+    /// EnemyNoiseModifier (Easy 1.3, Normal 1.1, Hard 1, Elite 0.9), i.e. +40 to -13 dB. In a duel that would let
+    /// the difficulty set the detection range against the opponent, so non-player vessels (opponent, decoy ghosts,
+    /// neutrals) use 1.0 there. The modifier is read only here; the player's own settings are put back right after.</summary>
+    [HarmonyPatch(typeof(SensorManager), "SaveVesselAcoustics")]
+    static class Patch_SaveVesselAcoustics
+    {
+        const string Key = "EnemyNoiseModifier";
+
+        static void Prefix(Vessel activeVessel, ref float __state)
+        {
+            __state = float.NaN;
+            if (!Duel.InDuel || activeVessel == null || activeVessel.playercontrolled) return;
+            Dictionary<string, float> d = OptionsManager.difficultySettings;
+            float m;
+            if (d == null || !d.TryGetValue(Key, out m) || m == 1f) return;
+            __state = m;
+            d[Key] = 1f;
+        }
+
+        static void Postfix(ref float __state)
+        {
+            if (float.IsNaN(__state) || OptionsManager.difficultySettings == null) return;
+            OptionsManager.difficultySettings[Key] = __state;
+        }
+    }
 }
 
 namespace ColdWatersMP

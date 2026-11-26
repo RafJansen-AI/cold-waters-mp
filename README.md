@@ -7,7 +7,7 @@
 ## What you get
 
 - **Full duel sync:** movement, sonar (passive and active), torpedoes, missiles with torpedo payloads, noisemakers, damage and sinking, all in both games.
-- **Pick any single mission and any sub.** The host's map, weather, sea state, layer and difficulty are used for both players.
+- **Pick any single mission and any sub.** The host's map, weather, sea state, layer and difficulty are used for both players. Difficulty changes hull strength, TMA, reload and repair times; it does not change how loud contacts are.
 - **Decoys as "ghost subs":** a MOSS or Korund decoy shows up for the other player as a second sub of the launcher's class. A sharp sonar operator can spot the difference in the signature. Tag a contact as a suspected decoy with the DECOY button in the ID book, or with Ctrl+F5.
 - **Neutral traffic:** merchants, fishing boats and whales, the same in both games. The host picks off, random, low, medium or high; the ID book always lists every neutral class the mission could have.
 - **Fair play:** time compression only while both players ask for it. The host decides whether Esc pauses both games. Both installs must match: different game data, such as an edited weapons file, is refused at connect.
