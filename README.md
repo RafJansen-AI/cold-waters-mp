@@ -24,7 +24,7 @@ Both players need the same game version, the same DotMod and the same mod versio
 
 ## Install
 
-**Easiest, from a clean game (DotMod included):** download `ColdWatersMP-Setup-<version>.zip` from [Releases](../../releases), extract it anywhere and double-click `Install.cmd`. It finds your Cold Waters folder, downloads DotMod v0.4c from the DotMod team's GitHub (about 740 MB, checked by SHA-256), installs it and then this mod. If DotMod is already installed, it only adds the mod. `Uninstall.cmd` puts back exactly what was there before.
+**Easiest, from a clean game (DotMod included, from release 0.0.43 on; not in 0.0.42):** download `ColdWatersMP-Setup-<version>.zip` from [Releases](../../releases), extract it anywhere and double-click `Install.cmd`. It finds your Cold Waters folder, downloads DotMod v0.4c from the DotMod team's GitHub (about 740 MB, checked by SHA-256), installs it and then this mod. If DotMod is already installed, it only adds the mod. `Uninstall.cmd` puts back exactly what was there before.
 
 **Manual, if you already have DotMod (about 2 minutes):**
 
