@@ -331,12 +331,22 @@ namespace ColdWatersMP
                 if (all != null)
                     foreach (int id in all)
                         if (Side(db[id].shipPrefabName) == side && !book.Contains(id)) book.Add(id);
+                if (book.Count < 3)
+                {
+                    // The sub list didn't load: fall back to every real sub of that side in the database, so the book
+                    // never holds just the opponent's class.
+                    Log("~WARNING: ID book sub list has only " + book.Count + " entries; using the database instead");
+                    for (int id = 0; id < db.Length; id++)
+                        if (db[id] != null && db[id].shipType == "SUBMARINE" && Patch_PopulateLevelLoadData_AllSubs.IsRealSub(db[id].shipPrefabName)
+                            && Side(db[id].shipPrefabName) == side && !book.Contains(id)) book.Add(id);
+                }
                 if (!book.Contains(oppCls)) book.Add(oppCls);
                 int subs = book.Count;
                 foreach (int c in Ambient.Classes()) if (!book.Contains(c)) book.Add(c); // neutral traffic, so it can be classified too
                 pf.otherVesselList = book.ToArray();
-                pf.currentSignatureIndex = 0; // used as a position in the list without a bounds check
-                Log("ID book: " + subs + " " + side + " submarines" + (book.Count > subs ? " + " + (book.Count - subs) + " neutral classes" : ""));
+                pf.currentSignatureIndex = Random.Range(0, subs); // a random sub page, so the first page says nothing; no bounds check in the game
+                Log("ID book: " + subs + " " + side + " submarines" + (book.Count > subs ? " + " + (book.Count - subs) + " neutral classes" : "")
+                    + "; opponent's class on page " + (book.IndexOf(oppCls) + 1));
             }
             catch (System.Exception ex) { Log("ID book not changed: " + ex.Message); }
         }

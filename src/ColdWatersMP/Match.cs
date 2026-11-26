@@ -349,7 +349,7 @@ namespace ColdWatersMP
 
         /// <summary>single001 also lists player surface ships (..._pl) and a test ship, all typed SUBMARINE. Keep real
         /// submarines only: names like wp_84_ssn_alfa, knm_68_ss_kobben (third part ss, ssn, ssk, ssbn, ssgn ...).</summary>
-        static bool IsRealSub(string name)
+        public static bool IsRealSub(string name)
         {
             if (name == null || name.EndsWith("_pl")) return false;
             string[] p = name.Split('_');
