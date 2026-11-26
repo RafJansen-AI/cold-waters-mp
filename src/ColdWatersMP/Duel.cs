@@ -378,11 +378,24 @@ namespace ColdWatersMP
             Log("Duel: placement applied");
         }
 
-        /// <summary>Seabed depth in feet at a point (the game's own terrain probe); very large if there is no terrain.</summary>
+        /// <summary>Seabed depth in feet at a point; very large if there is no terrain. Takes the shallower of the game's
+        /// two probes: the terrain raycast, and the coarse heightmap that MissionManager.Battlestations uses in
+        /// LevelLoadManager.CheckSpawnDepth. Where the heightmap says less than 0.5 units of water, Battlestations moves the
+        /// sub 20 to 200 units sideways, which shifted duel start ranges (placed 5.9 kyd, 7.3 kyd after Battlestations).</summary>
         public static float SeabedFeet(Vector3 p)
         {
-            try { return UIFunctions.globaluifunctions.levelloadmanager.GetTerrainHeightAtPosition(p.x, p.z) * GameDataManager.unitsToFeet; }
-            catch (System.Exception) { return 100000f; }
+            float ray = 100000f, map = 100000f;
+            LevelLoadManager llm = null;
+            try { llm = UIFunctions.globaluifunctions.levelloadmanager; } catch (System.Exception) { }
+            if (llm == null) return 100000f;
+            try { ray = llm.GetTerrainHeightAtPosition(p.x, p.z) * GameDataManager.unitsToFeet; } catch (System.Exception) { }
+            try
+            {
+                if (llm.currentMapGeneratorInstance != null)
+                    map = -llm.GetTerrainHeightAtPositionFromHeightMap(p.x, p.z) * GameDataManager.unitsToFeet;
+            }
+            catch (System.Exception) { }
+            return Mathf.Min(ray, map);
         }
 
         static void Teleport(Vessel v, Vector3 pos, float heading)
@@ -874,6 +887,34 @@ namespace ColdWatersMP
             float moved = UnityEngine.Vector3.Distance(own.transform.position, __state);
             own.transform.position = __state; own.transform.rotation = _rot;
             Duel.Log("~Duel: briefing tried to move our sub " + moved.ToString("F0") + " units; kept the duel placement");
+        }
+    }
+}
+
+namespace ColdWatersMP
+{
+    /// <summary>Log when Battlestations' spawn-depth check moves our sub or the opponent's puppet in a duel.</summary>
+    [HarmonyLib.HarmonyPatch(typeof(LevelLoadManager), "CheckSpawnDepth")]
+    static class Patch_CheckSpawnDepth_Log
+    {
+        static void Prefix(Vessel activeVessel, out Vector3 __state)
+        {
+            __state = activeVessel != null ? activeVessel.transform.position : Vector3.zero;
+        }
+
+        static void Postfix(Vessel activeVessel, Vector3 __state)
+        {
+            if (!Duel.InDuel || activeVessel == null) return;
+            try
+            {
+                bool own = activeVessel.playercontrolled, opp = activeVessel == Duel.Puppet;
+                if (!own && !opp) return;
+                Vector3 d = activeVessel.transform.position - __state; d.y = 0f;
+                if (d.sqrMagnitude < 0.01f) return;
+                Duel.Log("~CheckSpawnDepth moved " + (own ? "our sub" : "the opponent's puppet") + " " + d.magnitude.ToString("F0")
+                    + " units (" + (d.magnitude / Duel.UnitsPerNm).ToString("F2") + " nm): heightmap seabed too shallow there");
+            }
+            catch (System.Exception) { }
         }
     }
 }
