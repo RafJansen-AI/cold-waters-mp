@@ -157,6 +157,7 @@ namespace ColdWatersMP
             float brg = BearingTo(i);
             if (float.IsNaN(brg)) return;
             int donor = -1; float best = BearingLimit;
+            string rejected = "";
             foreach (int d in _slots)
             {
                 float at, last;
@@ -165,8 +166,10 @@ namespace ColdWatersMP
                 if (!_lastBrg.TryGetValue(d, out last)) continue;
                 float diff = Mathf.Abs(Mathf.DeltaAngle(brg, last));
                 if (diff <= best) { best = diff; donor = d; }
+                else rejected += " " + SM.initialDetectedByPlayerName[d] + " (lost " + (Time.time - at).ToString("F0") + " s, last brg " + last.ToString("F0") + ", " + diff.ToString("F0") + " deg off)";
             }
             if (donor >= 0) Transfer(donor, i, best);
+            else if (rejected.Length > 0) Duel.Log("~Track: new contact on slot " + i + " at brg " + brg.ToString("F0") + " is not near a lost track:" + rejected);
         }
 
         static void Transfer(int from, int to, float diff)
