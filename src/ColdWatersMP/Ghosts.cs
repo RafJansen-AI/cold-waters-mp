@@ -55,6 +55,7 @@ namespace ColdWatersMP
 
         public static void Reset()
         {
+            RestoreRay();
             _ghosts.Clear(); _ghostSig = null; _ghostSigFor = null; _marked.Clear(); _uncloaked.Clear(); _savedIcon.Clear(); _savedRot.Clear();
             foreach (Look l in _looks.Values) if (l.Proxy != null) Object.Destroy(l.Proxy);
             _looks.Clear();
@@ -110,6 +111,66 @@ namespace ColdWatersMP
         {
             foreach (Ghost g in _ghosts) if (g.V != null && g.V.vesselListIndex == vesselIndex) return g;
             return null;
+        }
+
+        // ---------- sonar masking ----------
+        // SonarCheck masks contact i when the ray to it crosses the "MaskingNoise" collider of a vessel k whose LAST reading
+        // is higher than i's LAST reading (signal / 2..4). A ghost starts beside its launcher, so the ray to it crosses
+        // the launcher's masking volume; once masked its last reading stays low and it lost that comparison every time,
+        // even when the decoy was 15 dB louder (seen 26 Nov: ghost 10-11 vs launcher 22-23). Before each check, give an
+        // active ghost the last reading it would have unmasked: the launcher's reading plus the noise difference,
+        // corrected for range. A ghost that is really quieter (fading in or out) is still masked. SonarCheck overwrites
+        // the reading with the fresh value before detection, so only the masking comparison sees this estimate.
+        static System.Reflection.FieldInfo _spreadF, _attenF;
+
+        public static void BeforeSonarCheck(SensorManager sm)
+        {
+            if (!Duel.InDuel || Duel.Puppet == null || sm == null || sm.signalLastPassiveReading == null || _ghosts.Count == 0) return;
+            Vessel own = GameDataManager.playervesselsonlevel != null && GameDataManager.playervesselsonlevel.Length > 0 ? GameDataManager.playervesselsonlevel[0] : null;
+            if (own == null || Duel.Puppet.acoustics == null) return;
+            float[] sig = sm.signalLastPassiveReading;
+            int p = Duel.Puppet.vesselListIndex;
+            if (p < 0 || p >= sig.Length || sig[p] < -100f) return; // launcher in our baffles or unheard: no reference
+            if (_spreadF == null) { _spreadF = AccessTools.Field(typeof(SensorManager), "spreadingFactor"); _attenF = AccessTools.Field(typeof(SensorManager), "attenuationFactor"); }
+            float spread = _spreadF != null ? (float)_spreadF.GetValue(sm) : 0f, atten = _attenF != null ? (float)_attenF.GetValue(sm) : 0f;
+            float rP = Mathf.Max(1f, Vector3.Distance(own.transform.position, Duel.Puppet.transform.position) * GameDataManager.yardsScale * 0.9144f);
+            foreach (Ghost g in _ghosts)
+            {
+                if (g.TorpId < 0 || g.V == null || g.V.acoustics == null) continue;
+                int gi = g.V.vesselListIndex;
+                if (gi < 0 || gi >= sig.Length) continue;
+                float rG = Mathf.Max(1f, Vector3.Distance(own.transform.position, g.V.transform.position) * GameDataManager.yardsScale * 0.9144f);
+                float est = sig[p] + (g.V.acoustics.currentNoise - Duel.Puppet.acoustics.currentNoise)
+                          - spread * (Mathf.Log10(rG) - Mathf.Log10(rP)) - atten * (rG - rP);
+                if (est > sig[gi]) sig[gi] = est;
+            }
+        }
+
+        // A ghost rides on its hidden decoy copy, whose "decoyAcoustics" collider is on layer 14 (Acoustics). SonarCheck's
+        // masking ray towards the ghost then hit that sphere and divided the ghost's signal by 3..4, by its own decoy
+        // (seen 26 Nov). GetVesselNoiseLevel runs for each vessel just before its masking ray: while the vessel is a
+        // ghost, its own decoy's layer-14 colliders sit on "Ignore Raycast" (2); for every other vessel, and after the
+        // check, they are back on 14, so a decoy still masks the real sub behind it as in the game.
+        static readonly List<GameObject> _rayHidden = new List<GameObject>();
+        static Ghost _rayFocus;
+
+        public static void RayFocus(Vessel v)
+        {
+            Ghost g = null;
+            foreach (Ghost x in _ghosts) if (x.V == v && x.T != null) { g = x; break; }
+            if (g != null && g == _rayFocus) return;
+            RestoreRay();
+            if (g == null) return;
+            foreach (Collider c in g.T.GetComponentsInChildren<Collider>(true))
+                if (c != null && c.gameObject.layer == 14) { _rayHidden.Add(c.gameObject); c.gameObject.layer = 2; }
+            _rayFocus = g;
+        }
+
+        public static void RestoreRay()
+        {
+            foreach (GameObject go in _rayHidden) if (go != null) go.layer = 14;
+            _rayHidden.Clear();
+            _rayFocus = null;
         }
 
         /// <summary>The opponent-side slots whose contacts follow the track rule (Tracks): the puppet and every ghost.</summary>
@@ -665,6 +726,24 @@ namespace ColdWatersMP
         static void Postfix(string graphicName)
         {
             try { Ghosts.OnProfileSprite(graphicName); } catch (System.Exception) { }
+        }
+    }
+}
+
+namespace ColdWatersMP
+{
+    [HarmonyPatch(typeof(SensorManager), "SonarCheck")]
+    static class Patch_SonarCheck_GhostMasking
+    {
+        static void Prefix(SensorManager __instance)
+        {
+            try { Ghosts.BeforeSonarCheck(__instance); }
+            catch (System.Exception ex) { Duel.Log("~Ghost masking fix failed: " + ex.Message); }
+        }
+
+        static void Postfix()
+        {
+            try { Ghosts.RestoreRay(); } catch (System.Exception) { }
         }
     }
 }

@@ -213,8 +213,32 @@ namespace ColdWatersMP
                 string lost = _lostAt.TryGetValue(i, out at) ? ", lost " + (Time.time - at).ToString("F0") + " s" : "";
                 if (b.Length > 0) b.Append(" | ");
                 b.Append("slot " + i + " " + (HasName(i) ? sm.initialDetectedByPlayerName[i] : "-") + " det " + Detected(i) + " sig " + sig.ToString("F1") + " " + kyd.ToString("F1") + " kyd" + lost);
+                if (v != null && v.acoustics != null) b.Append(" noise " + v.acoustics.currentNoise.ToString("F1"));
+                b.Append(MaskCheck(own, v));
             }
             return b.Length > 0 ? b.ToString() : "none";
+        }
+
+        /// <summary>Diagnostics: the game's sonar masking raycast (SonarCheck) from our sonar towards v. A hit on layer 14
+        /// divides the signal by 3..4; a hit on another vessel's collider masks it with that vessel's signal.</summary>
+        static string MaskCheck(Vessel own, Vessel v)
+        {
+            try
+            {
+                if (own == null || v == null || own.acoustics == null || own.acoustics.sensorNavigator == null) return "";
+                SensorManager sm = SM;
+                Vector3 from = own.acoustics.sensorNavigator.position;
+                Vector3 d = v.transform.position - from;
+                RaycastHit hit;
+                bool any;
+                Ghosts.RayFocus(v); // as in SonarCheck: a ghost's own decoy doesn't mask it
+                try { any = Physics.Raycast(from, d.normalized, out hit, d.magnitude, (int)sm.maskingLayers); }
+                finally { Ghosts.RestoreRay(); }
+                if (!any) return " mask clear";
+                GameObject go = hit.collider.gameObject;
+                return " mask HIT " + go.name + " layer " + go.layer + " (" + LayerMask.LayerToName(go.layer) + ") at " + (hit.distance / d.magnitude * 100f).ToString("F0") + "% [mask " + ((int)sm.maskingLayers) + "]";
+            }
+            catch (System.Exception ex) { return " mask ? " + ex.Message; }
         }
 
         static MethodInfo _setContactName;

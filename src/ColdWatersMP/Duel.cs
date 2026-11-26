@@ -807,6 +807,7 @@ namespace ColdWatersMP
     {
         static void Postfix(SensorManager __instance, Vessel activeVessel, ref float __result)
         {
+            if (Duel.InDuel) { try { Ghosts.RayFocus(activeVessel); } catch (System.Exception) { } }
             if (Duel.InDuel && Ghosts.Noise(activeVessel, ref __result)) return;
             if (!Duel.IsPuppet(activeVessel)) return;
             if (Duel.OppRunningSilent)
