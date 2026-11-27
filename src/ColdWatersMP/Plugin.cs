@@ -14,7 +14,7 @@ namespace ColdWatersMP
         public static string ModHash = "";
         public static bool DevKeysOn;
         bool _confirmDisconnect;
-        public const string PluginVersion = "0.0.45";
+        public const string PluginVersion = "0.1.0";
 
         ConfigEntry<string> _role, _hostAddress, _playerName, _fakeHash;
         ConfigEntry<int> _port;
