@@ -102,7 +102,7 @@ team games and scenarios (an Oscar or Typhoon is a natural objective holder or t
 ## Team points (draft)
 
 Cost = 2^BR, rounded. Examples: BR 1.0 = 2, 2.5 = 6, 3.4 = 11, 4.0 = 16, 4.6 = 24, 4.9 = 30, 5.2 = 37, 5.8 = 56,
-6.1 = 69. So one Seawolf (69) is worth about three Akulas (90) minus one, or four Victor IIIs (64). A team budget of 60
+6.1 = 69. So one Seawolf (69) is worth a bit more than two Akulas (60), or about four Victor IIIs (64). A team budget of 60
 buys two Akulas, or one LA '84 with two Victor IIIs, or one Virginia alone.
 
 ## What to check before trusting it
