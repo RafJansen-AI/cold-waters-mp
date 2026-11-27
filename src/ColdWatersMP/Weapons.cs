@@ -496,10 +496,11 @@ namespace ColdWatersMP
                 case G_EXPLOSION:
                 {
                     int magnitude = r.ReadInt32();
+                    Vector3 local = new Vector3(r.ReadSingle(), r.ReadSingle(), r.ReadSingle()); // where on their vessel
                     Opponent o = Duel.InDuel ? Duel.InGameById(from) : null;
                     if (o != null && o.Puppet != null)
                     {
-                        try { UIFunctions.globaluifunctions.database.CreateExplosion(o.Puppet, magnitude, o.Puppet.transform.position); }
+                        try { UIFunctions.globaluifunctions.database.CreateExplosion(o.Puppet, magnitude, o.Puppet.transform.TransformPoint(local)); }
                         catch (System.Exception ex) { Duel.Log("~Secondary explosion failed: " + ex.Message); }
                         Duel.Log("~Secondary explosion on " + (Duel.Opps.Count > 1 ? o.Label + "'s" : "the opponent's") + " sub (" + magnitude + ")");
                     }
@@ -715,7 +716,10 @@ namespace ColdWatersMP
             if (Ambient.IsNeutral(__instance.activeVessel)) return Ambient.AllowHit(__instance, otherObject); // the host decides
             if (!Duel.IsPuppet(__instance.activeVessel)) return true;
             // Torpedoes, mortar rounds and shells: the puppet's own player decides (their game has a copy).
-            return otherObject == null || (otherObject.GetComponent<Torpedo>() == null && !Rounds.IsRound(otherObject));
+            if (otherObject == null) return true;
+            if (otherObject.GetComponent<Torpedo>() != null) return false;
+            if (Rounds.IsRound(otherObject)) return false;
+            return true;
         }
     }
 }
@@ -742,13 +746,16 @@ namespace ColdWatersMP
     [HarmonyPatch(typeof(Database), "CreateExplosion")]
     static class Patch_CreateExplosion
     {
-        static void Prefix(Vessel activeVessel, int magnitude)
+        static void Prefix(Vessel activeVessel, int magnitude, Vector3 explosionPosition)
         {
             try
             {
                 if (!Duel.InDuel || Duel.Session == null || activeVessel == null || !activeVessel.playercontrolled) return;
                 int m = magnitude;
-                Duel.Session.SendGame(Weapons.G_EXPLOSION, w => w.Write(m), true);
+                // Where on our vessel (its own frame), so the others show it at the same spot on our puppet: a shell hit
+                // flashes where it hit, a fire where it burns (before: always at the vessel's centre).
+                Vector3 local = activeVessel.transform.InverseTransformPoint(explosionPosition);
+                Duel.Session.SendGame(Weapons.G_EXPLOSION, w => { w.Write(m); w.Write(local.x); w.Write(local.y); w.Write(local.z); }, true);
                 Duel.Log("~Secondary explosion on our sub (" + m + "), sent");
             }
             catch (System.Exception ex) { Duel.Log("~Secondary explosion send failed: " + ex.Message); }
