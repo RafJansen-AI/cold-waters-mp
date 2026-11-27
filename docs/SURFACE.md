@@ -316,3 +316,9 @@ What to check in the test:
 4. **Naval guns** (ship vs ship, surfaced subs), visible helicopter (SAMs can shoot it).
 5. **Helicopter dipping sonar** (section 7).
 6. Ships in team battles (mostly checks: lobby shows type, placement per team). Release 0.3.0 when 1-6 work.
+7. **Towed decoys (Nixie).** Only 11 player ships have one (US/Australian Perry, Spruance, Burke, Ticonderoga, Iowa,
+   Adelaide); no sub, and none of the AI versions. DotMod: `VesselMovement.towedDecoy` (`DotModTowedDecoy`: `SetDeployed`,
+   short/long stay, `SetDecoyActive`, damaged/destroyed); torpedoes check it in `Torpedo.CheckTargetInSensorCone`. Plan:
+   give the puppet (AI version) the player ship's decoy data before it is built, so it gets the same decoy, then send
+   its state with the vessel state (as the towed array), so the firer's torpedoes can be seduced in the firer's game.
+   Before the release (Raf, 28 Nov).
