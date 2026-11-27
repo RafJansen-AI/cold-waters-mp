@@ -8,13 +8,14 @@ using UnityEngine;
 
 namespace ColdWatersMP
 {
-    [BepInPlugin("cwmp", "Cold Waters MP", PluginVersion)]
+    [BepInPlugin("cwmp", "Cold Waters MP", PluginVersionNumber)]
     public class CwmpPlugin : BaseUnityPlugin
     {
         public static string ModHash = "";
         public static bool DevKeysOn;
         bool _confirmDisconnect;
-        public const string PluginVersion = "0.1.0";
+        public const string PluginVersion = "0.2.0-beta.1";   // shown to players and compared at connect
+        public const string PluginVersionNumber = "0.2.0";    // BepInEx needs a plain version number
 
         ConfigEntry<string> _role, _hostAddress, _playerName, _fakeHash;
         ConfigEntry<int> _port;
