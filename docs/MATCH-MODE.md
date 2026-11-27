@@ -169,6 +169,8 @@ sub carries it.
   toothless; fine in team games as an objective holder, odd in a 1v1.
 
 ### Proposal: battle rating (BR)
+
+First computed table: [BATTLE-RATING.md](BATTLE-RATING.md).
 1. **Computed starting value** per sub class. The sensor part can use the game's own sum instead of guessed weights:
    **acoustic edge = (hull sensitivity + array bonus) - SelfNoise / 3.2**, in dB. Every 1 dB of that is worth the
    same in detection range, for hearing and for being heard. Add scores (each normalised 0-1 across all subs) for
