@@ -6,7 +6,7 @@ submarine, against subs and against other ships, in 1v1 and in team battles ([TE
 **Decided by Raf (27 Nov):** balance waits for a later release (proper matches with match mode and battle rating,
 [MATCH-MODE.md](MATCH-MODE.md), [BATTLE-RATING.md](BATTLE-RATING.md)). For this release **any ship can be picked and
 any matchup is possible** (sub vs ship, ship vs ship, mixed teams), for fun and testing. No `Allow ships` setting, no
-exclusions. The helicopter dipping sonar: looked into (see below), Raf to decide.
+exclusions. The helicopter dipping sonar goes in this release (step 5, section 7). Plan agreed by Raf, 27 Nov.
 
 Sources: Cold Waters 1.15g + DotMod v0.4c, read with Mono.Cecil (`Assembly-CSharp.dll`) and from the DotMod data files
 (`StreamingAssets/dotmod`). "Read in code" = seen in the IL; "data" = from the text files; nothing below was tried in
@@ -155,7 +155,7 @@ is realistic, but it is not a fair duel.
 - The helicopter is not shown in the opponent's game at first (without a dipping sonar nothing gives it away, and
   subs can't shoot at it). Later: a visible helicopter model, which ship vs ship needs (SAMs can shoot helicopters).
 
-### 7. Helicopter dipping sonar (looked into 27 Nov, not decided)
+### 7. Helicopter dipping sonar (looked into 27 Nov; in this release, Raf)
 What the AI helicopter does (`Helicopter.CheckDippingSonar`, read in code): it hovers, then calls the game's general
 sonar function `SensorManager.CheckSingleSonar(listener, contact, passiveSonarID, activeSonarID, mode, sensordata,
 isSonobuoy, sonobuoy)` with itself as the listener and its own sonar (SH-60B: AQS-13F; Hormone, Helix, Lynx, Z-9 have
@@ -229,11 +229,5 @@ Krivak, Kara in the middle; Knox, Kotlin, Riga, Chinese frigates at the bottom.
 2. **Helicopter torpedoes and RBU/depth bombs** (new launch hook, mortar salvo message).
 3. **Anti-ship missiles, from subs and ships**: missile copy in the target's game, CIWS/SAM/chaff decide, chaff sync.
 4. **Naval guns** (ship vs ship, surfaced subs), visible helicopter (SAMs can shoot it).
-5. **Helicopter dipping sonar**, if Raf wants it (section 7).
-6. Ships in team battles (mostly checks: lobby shows type, placement per team). Release 0.3.0 when 1-4 and 6 work;
-   5 can go in the release or after.
-
-## Open questions for Raf
-1. Dipping sonar: in this release (step 5), later, or not at all?
-2. Anything from steps 2-4 that can wait for a later release? (Missiles matter most: without them ship vs ship is
-   torpedoes only.)
+5. **Helicopter dipping sonar** (section 7).
+6. Ships in team battles (mostly checks: lobby shows type, placement per team). Release 0.3.0 when 1-6 work.
