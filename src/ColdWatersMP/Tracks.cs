@@ -180,7 +180,7 @@ namespace ColdWatersMP
             if (lk.Marker != null) Object.Destroy(lk.Marker);
             if (lk.Holder != null) Object.Destroy(lk.Holder);
             _lastKnown.Remove(lk);
-            try { if (lk.Classified) SetContactName.Invoke(sm, new object[] { to }); }
+            try { if (lk.Classified) { SetContactName.Invoke(sm, new object[] { to }); ApplyClassColor(to); } }
             catch (System.Exception ex) { Duel.Log("~Track name refresh failed: " + ex.Message); }
             Duel.Log("~Track " + lk.Name + " revived on slot " + to + " from its last-known marker (" + diff.ToString("F0") + " deg off"
                 + (float.IsNaN(carried) ? "" : ", solution " + carried.ToString("F0") + "%") + ")");
@@ -348,9 +348,22 @@ namespace ColdWatersMP
             if (sm.identifiedByPlayer != null) sm.identifiedByPlayer[from] = false;
             if (from < mcs.Length && mcs[from] != null) mcs[from].gameObject.SetActive(false);
             _lostAt.Remove(from); _lastBrg.Remove(from);
-            try { if (sm.classifiedByPlayer != null && sm.classifiedByPlayer[to]) SetContactName.Invoke(sm, new object[] { to }); }
+            try { if (sm.classifiedByPlayer != null && sm.classifiedByPlayer[to]) { SetContactName.Invoke(sm, new object[] { to }); ApplyClassColor(to); } }
             catch (System.Exception ex) { Duel.Log("~Track name refresh failed: " + ex.Message); }
             Duel.Log("~Track " + name + " continues on slot " + to + " (was slot " + from + ", " + diff.ToString("F0") + " deg from its last bearing, solution " + carried.ToString("F0") + "%)");
+        }
+
+        /// <summary>The colour ClassifyTargetIconSetup gives a contact when it is classified (navy colour of the class:
+        /// NATO blue, WP red, civilian green). A track moved to another slot skips that step, so the new slot's marker
+        /// kept the unclassified green (Raf, 27 Nov). Same colour, without the "classified" callout.</summary>
+        static void ApplyClassColor(int i)
+        {
+            SensorManager sm = SM;
+            MapContact[] mcs = sm.tacticalmap != null ? sm.tacticalmap.mapContact : null;
+            if (mcs == null || i < 0 || i >= mcs.Length || mcs[i] == null) return;
+            Color c = sm.GetContactColor(i);
+            if (mcs[i].shipDisplayIcon != null) mcs[i].shipDisplayIcon.color = c;
+            if (mcs[i].contactText != null) mcs[i].contactText.color = c;
         }
 
         static float CopySlot(float[] a, int from, int to)
