@@ -45,6 +45,7 @@ namespace ColdWatersMP
                     + " | our active " + own.acoustics.usingActiveSonar
                     + " | ENV ambient " + sm.currentOceanAmbientNoise.ToString("F1") + ", layer " + sm.layerDepthInFeet.ToString("F0") + " ft str " + sm.layerStrength.ToString("F2")
                     + ", duct " + sm.surfaceDuctStrength.ToString("F2") + ", sea " + sm.seaState);
+                Log("~TRACKS " + Tracks.Describe());
             }
             catch (System.Exception ex) { Log("SONAR diagnostics failed: " + ex.Message); }
         }
@@ -319,6 +320,78 @@ namespace ColdWatersMP
             return (n == "wp" || n == "plan") ? "Soviet/Chinese" : "NATO";
         }
 
+        /// <summary>DotMod has era versions of a class (usn_68_ss_barbel, usn_84_ss_barbel). Both in the book gave doubled
+        /// pages (Skipjack's two share one signature image), and the game's class check (CompareVesselPrefabNames: name
+        /// without the navy prefix) treats them as different classes, so picking the other era's identical page was a
+        /// wrong classification (Raf, 27 Nov). Keep one page per class: the opponent's era where the class has it,
+        /// else the nearest era, so the opponent's own page doesn't stand out by era.</summary>
+        static List<int> OnePerClass(List<int> book, DatabaseShipData[] db, int oppCls)
+        {
+            int oppEra = Era(db[oppCls].shipPrefabName);
+            Dictionary<string, int> pick = new Dictionary<string, int>();
+            List<string> order = new List<string>();
+            foreach (int id in book)
+            {
+                string key = ClassKey(db[id].shipPrefabName);
+                int cur;
+                if (!pick.TryGetValue(key, out cur)) { pick[key] = id; order.Add(key); continue; }
+                if (cur == oppCls) continue;
+                if (id == oppCls || EraDistance(Era(db[id].shipPrefabName), oppEra) < EraDistance(Era(db[cur].shipPrefabName), oppEra)) pick[key] = id;
+            }
+            List<int> result = new List<int>();
+            foreach (string k in order) result.Add(pick[k]);
+            if (result.Count < book.Count) Log("~ID book: " + (book.Count - result.Count) + " era duplicate(s) left out (one page per class, era " + oppEra + " first)");
+            return result;
+        }
+
+        /// <summary>The prefab name without its era number: usn_84_ss_barbel -> usn_ss_barbel.</summary>
+        static string ClassKey(string prefab)
+        {
+            System.Text.StringBuilder b = new System.Text.StringBuilder();
+            foreach (string p in prefab.Split('_'))
+            {
+                int n;
+                if (int.TryParse(p, out n)) continue;
+                if (b.Length > 0) b.Append('_');
+                b.Append(p);
+            }
+            return b.ToString();
+        }
+
+        /// <summary>The era number in a prefab name (84 in usn_84_ss_barbel), or -1.</summary>
+        static int Era(string prefab)
+        {
+            foreach (string p in prefab.Split('_')) { int n; if (int.TryParse(p, out n)) return n; }
+            return -1;
+        }
+
+        static int EraDistance(int a, int b) { return a < 0 || b < 0 ? 1000 : System.Math.Abs(a - b); }
+
+        /// <summary>Side colours in a duel (Raf, 27 Nov): NATO in DotMod's HUD blue, WP/PLAN in the vanilla HUD red.</summary>
+        public static readonly Color NatoBlue = new Color(74f / 255f, 163f / 255f, 201f / 255f, 1f);
+        public static readonly Color WpRed = new Color(1f, 136f / 255f, 154f / 255f, 1f);
+        public static Color SideColor(string prefab)
+        {
+            string navy = prefab != null ? prefab.Split('_')[0] : "";
+            return (navy == "wp" || navy == "plan") ? WpRed : NatoBlue;
+        }
+
+        static bool _oppColorLogged;
+
+        /// <summary>The HUD's EnemyColor (navyColors[1]) is what the game draws the opponent's torpedoes, noisemakers,
+        /// knuckles, wake bubbles and towed decoys in (DotMod: blue for everyone). In a duel it is the opponent's side
+        /// colour, so they match the opponent's contact. BuildHUD refills the table on every HUD build, so check each frame.</summary>
+        static void ApplyOpponentColor()
+        {
+            if (Puppet == null || Puppet.databaseshipdata == null) return;
+            TacticalMap tm = UIFunctions.globaluifunctions.playerfunctions.sensormanager.tacticalmap;
+            if (tm == null || tm.navyColors == null || tm.navyColors.Length < 2) return;
+            Color c = SideColor(Puppet.databaseshipdata.shipPrefabName);
+            if (tm.navyColors[1] == c) return;
+            tm.navyColors[1] = c;
+            if (!_oppColorLogged) { _oppColorLogged = true; Log("~Opponent colour on the map: " + (c == WpRed ? "WP red" : "NATO blue")); }
+        }
+
         static void SetIdBook(int oppCls)
         {
             try
@@ -341,6 +414,7 @@ namespace ColdWatersMP
                             && Side(db[id].shipPrefabName) == side && !book.Contains(id)) book.Add(id);
                 }
                 if (!book.Contains(oppCls)) book.Add(oppCls);
+                book = OnePerClass(book, db, oppCls);
                 int subs = book.Count;
                 foreach (int c in Ambient.Classes()) if (!book.Contains(c)) book.Add(c); // neutral traffic, so it can be classified too
                 pf.otherVesselList = book.ToArray();
@@ -536,6 +610,8 @@ namespace ColdWatersMP
             EnvSync.HostNewSeed(); // host: new ocean for the next mission (the client keeps the latest seed it got)
             Weapons.Reset();
             Ghosts.Reset();
+            Tracks.Reset();
+            _oppColorLogged = false;
             Ambient.Reset();
         }
 
@@ -557,6 +633,8 @@ namespace ColdWatersMP
             }
             DrivePuppet();
             try { Ghosts.Update(); } catch (System.Exception ex) { Log("~Ghost update failed: " + ex); }
+            try { Tracks.Update(); } catch (System.Exception ex) { Log("~Track update failed: " + ex.Message); }
+            try { ApplyOpponentColor(); } catch (System.Exception) { }
             try { Ambient.Update(); } catch (System.Exception ex) { Log("~Neutral update failed: " + ex.Message); }
             Weapons.Update();
         }
@@ -798,12 +876,62 @@ namespace ColdWatersMP
         static bool Prefix(DotModTowedArray __instance) { return !Duel.IsRemoteArray(__instance); }
     }
 
+    /// <summary>SensorManager.CheckIfIsInBaffles waives the baffles (bearing beyond 150 deg off the bow) for any listener whose
+    /// class has a towed sonar while it makes 0..10 kt, for the player as long as the TOWED subsystem is undamaged. It never
+    /// looks at DotMod's deploy state, so an LA with its array stowed heard straight astern (Raf, 27 Nov). In a duel the
+    /// waiver needs a deployed, intact DotMod array; without one the normal 150 deg baffle applies. Vessels without a
+    /// DotMod array object keep the game's rule.</summary>
+    [HarmonyPatch(typeof(SensorManager), "CheckIfIsInBaffles")]
+    static class Patch_CheckIfIsInBaffles
+    {
+        static bool Prefix(Vessel listeningVessel, Transform noiseLocation, ref bool __result)
+        {
+            try
+            {
+                if (!Duel.InDuel || listeningVessel == null || noiseLocation == null || listeningVessel.vesselmovement == null) return true;
+                DotModTowedArray ta = listeningVessel.vesselmovement.towedArray;
+                if (ta == null || (ta.GetDeployed() && !ta.isDestroyed)) return true; // the game's rule (array out: no baffles below 10 kt)
+                float b = UIFunctions.globaluifunctions.GetBearingToTransform(listeningVessel.transform, noiseLocation);
+                __result = Mathf.Abs(b) > 150f;
+                return false;
+            }
+            catch (System.Exception) { return true; }
+        }
+    }
+
+    /// <summary>GetContactColor gives any slot the HUD's EnemyColor (navyColors[1]; DotMod HUDs: blue, vanilla: red) unless
+    /// its classified class is civilian, whether the slot is classified or not. There is no side rule in the game. In a
+    /// duel (Raf, 27 Nov; needed for 2v2 later): a classified contact gets the colour of its class's side, NATO in DotMod's
+    /// enemy blue and WP/PLAN in the vanilla enemy red; civilians keep the game's colour; an unclassified slot (also one
+    /// whose track Tracks dropped or moved, and the "decoy?" untag) gets NeutralColor (navyColors[2]), as TacticalMapInit
+    /// gives every contact. The own sub keeps PlayerColor.</summary>
+    [HarmonyPatch(typeof(SensorManager), "GetContactColor")]
+    static class Patch_GetContactColor
+    {
+        static void Postfix(SensorManager __instance, int i, ref Color __result)
+        {
+            try
+            {
+                if (!Duel.InDuel) return;
+                TacticalMap tm = __instance.tacticalmap;
+                Color[] nc = tm != null ? tm.navyColors : null;
+                if (nc == null || nc.Length < 3) return;
+                if (__instance.classifiedByPlayer == null || i < 0 || i >= __instance.classifiedByPlayer.Length || !__instance.classifiedByPlayer[i]) { __result = nc[2]; return; }
+                DatabaseShipData d = UIFunctions.globaluifunctions.database.databaseshipdata[__instance.classifiedByPlayerAsClass[i]];
+                if (d.shipType == "BIOLOGIC" || Database.GetIsCivilian(d.shipPrefabName)) return; // the game's (green)
+                __result = Duel.SideColor(d.shipPrefabName);
+            }
+            catch (System.Exception) { }
+        }
+    }
+
     /// <summary>Fairness: give the puppet the player-only quieting the real player gets.</summary>
     [HarmonyPatch(typeof(SensorManager), "GetVesselNoiseLevel")]
     static class Patch_NoiseLevel
     {
         static void Postfix(SensorManager __instance, Vessel activeVessel, ref float __result)
         {
+            if (Duel.InDuel) { try { Ghosts.RayFocus(activeVessel); } catch (System.Exception) { } }
             if (Duel.InDuel && Ghosts.Noise(activeVessel, ref __result)) return;
             if (!Duel.IsPuppet(activeVessel)) return;
             if (Duel.OppRunningSilent)
@@ -833,6 +961,33 @@ namespace ColdWatersMP
                 float output = UIFunctions.globaluifunctions.database.databasesonardata[sid].sonarOutput;
                 if (__result < output) __result = output;
             }
+        }
+    }
+
+    /// <summary>Difficulty: SaveVesselAcoustics multiplies every non-player vessel's noise (a dB value) by
+    /// EnemyNoiseModifier (Easy 1.3, Normal 1.1, Hard 1, Elite 0.9), i.e. +40 to -13 dB. In a duel that would let
+    /// the difficulty set the detection range against the opponent, so non-player vessels (opponent, decoy ghosts,
+    /// neutrals) use 1.0 there. The modifier is read only here; the player's own settings are put back right after.</summary>
+    [HarmonyPatch(typeof(SensorManager), "SaveVesselAcoustics")]
+    static class Patch_SaveVesselAcoustics
+    {
+        const string Key = "EnemyNoiseModifier";
+
+        static void Prefix(Vessel activeVessel, ref float __state)
+        {
+            __state = float.NaN;
+            if (!Duel.InDuel || activeVessel == null || activeVessel.playercontrolled) return;
+            Dictionary<string, float> d = OptionsManager.difficultySettings;
+            float m;
+            if (d == null || !d.TryGetValue(Key, out m) || m == 1f) return;
+            __state = m;
+            d[Key] = 1f;
+        }
+
+        static void Postfix(ref float __state)
+        {
+            if (float.IsNaN(__state) || OptionsManager.difficultySettings == null) return;
+            OptionsManager.difficultySettings[Key] = __state;
         }
     }
 }
