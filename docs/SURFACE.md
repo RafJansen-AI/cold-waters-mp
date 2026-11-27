@@ -321,7 +321,7 @@ What to check in the test:
    short/long stay, `SetDecoyActive`, damaged/destroyed); torpedoes check it in `Torpedo.CheckTargetInSensorCone`. Plan:
    give the puppet (AI version) the player ship's decoy data before it is built, so it gets the same decoy, then send
    its state with the vessel state (as the towed array), so the firer's torpedoes can be seduced in the firer's game.
-. **Surface-ship MOSS** (`usn_moss_surf`, "exists as a bug workaround" in DotMod; on Knox, Belknap '84, Nimitz). The
+8. **Surface-ship MOSS** (`usn_moss_surf`, "exists as a bug workaround" in DotMod; on Knox, Belknap '84, Nimitz). The
    mod's decoy handling (Ghosts.cs) shows a MOSS to the other players as a ghost sub of the launcher's class, which for a
    ship launcher would be a ghost of its AI ship. Raf (28 Nov): the ship version probably shouldn't get the sub
    treatment. To decide later (plain noisemaker-style decoy, or a generic sub ghost).
