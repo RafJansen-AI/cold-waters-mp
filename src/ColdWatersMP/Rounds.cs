@@ -54,7 +54,8 @@ namespace ColdWatersMP
                 int id = dc.depthChargeID; float vel = dc.velocity, sink = dc.sinkSpeed, fuse = dc.dcExplodeDepth;
                 bool depthEx = dc.isDepthExploded, contactEx = dc.isContactExploded, shell = dc.isNavalShell;
                 Vector3 target = dc.targetPosition;
-                // Where we saw the targeted player when firing: their game moves the copy by the gap to where they really are.
+                int serial = ++_serial;
+                // Which player we aimed at (and where we saw them): for the shell diagnostics.
                 int targetId = -1; Vector3 seen = Vector3.zero;
                 try
                 {
@@ -73,7 +74,9 @@ namespace ColdWatersMP
                     w.Write(depthEx); w.Write(contactEx); w.Write(shell);
                     w.Write(target.x); w.Write(target.y); w.Write(target.z);
                     w.Write(targetId); w.Write(seen.x); w.Write(seen.y); w.Write(seen.z);
+                    w.Write(serial);
                 }, true);
+                Tag(dc, serial, true, targetId);
                 OwnFired++;
                 if (!shell) { OwnMortars++; Duel.Log("~Rounds: mortar round " + OwnMortars + " sent (fuse " + fuse.ToString("F1") + ")"); }
                 else if (OwnFired - OwnMortars == 1 || (OwnFired - OwnMortars) % 20 == 0) Duel.Log("~Rounds: shell " + (OwnFired - OwnMortars) + " sent");
@@ -92,6 +95,7 @@ namespace ColdWatersMP
             Vector3 target = new Vector3(r.ReadSingle(), r.ReadSingle(), r.ReadSingle());
             int targetId = r.ReadInt32();
             Vector3 seen = new Vector3(r.ReadSingle(), r.ReadSingle(), r.ReadSingle());
+            int serial = r.ReadInt32();
             if (!Duel.InDuel || Duel.Session == null || Duel.Session.LastSender == Duel.Session.MyId) return true;
             if (Duel.InGameById(Duel.Session.LastSender) == null) return true; // not in our mission
             try
@@ -100,16 +104,6 @@ namespace ColdWatersMP
                 if (id < 0 || id >= db.Length || db[id] == null || db[id].depthChargeObject == null) { Duel.Log("~Ignored a round of unknown type " + id); return true; }
                 // A fresh object, not one from the game's pool: copies made from reused pool objects flew short (about
                 // 470 yd instead of 2,300; test 27 Nov), fresh ones flew like the firer's. DestroyMe then uses Destroy.
-                // Aimed at us: the firer aimed at our puppet in their game, which can sit several yards off where we really are
-                // (smoothing, delay, the AI twin's model). Shift the copy by that gap, so aim and spread count against our real
-                // position (Raf's test 27 Nov: shells about 10 m off, few hits).
-                if (targetId == Duel.Session.MyId && GameDataManager.playervesselsonlevel != null && GameDataManager.playervesselsonlevel[0] != null)
-                {
-                    Vector3 gap = GameDataManager.playervesselsonlevel[0].transform.position - seen; gap.y = 0f;
-                    float yd = gap.magnitude * GameDataManager.yardsScale;
-                    if (yd < 500f) { pos += gap; target += gap; }
-                    if (_shiftLogged++ < 12) Duel.Log("~Rounds: copy aimed at us, firer saw us " + yd.ToString("F0") + " yd off" + (yd < 500f ? ", shifted" : ", too far, not shifted"));
-                }
                 GameObject go = (GameObject)Object.Instantiate(db[id].depthChargeObject, pos, Quaternion.identity);
                 go.SetActive(true);
                 go.transform.rotation = rot;
@@ -135,7 +129,11 @@ namespace ColdWatersMP
                 _startingCopy = true;
                 try { dc.Start(); } finally { _startingCopy = false; }
                 dc.dcExplodeDepth = fuse; // Start draws its own random fuse depth; use the firer's
-                dc.FixedUpdate();
+                // No FixedUpdate by hand here. The firer calls it inside the physics step, where the game then skips that step's
+                // own FixedUpdate for the new round; a copy is made outside it, so the game also runs FixedUpdate before the first
+                // physics step, and the round got its downward push twice: copies splashed 12-47 yd short, 1-4 steps early
+                // (shell diagnostics 27 Nov). Left to the game, it gets one push per step, like the original.
+                Tag(dc, serial, false, targetId);
                 OppFired++;
                 if (!shell) { OppMortars++; Duel.Log("~Rounds: opponent mortar round " + OppMortars + " copied"); }
                 else if (OppFired - OppMortars == 1 || (OppFired - OppMortars) % 20 == 0) Duel.Log("~Rounds: opponent shell " + (OppFired - OppMortars) + " copied");
@@ -159,8 +157,142 @@ namespace ColdWatersMP
         static bool _startingCopy;
         public static bool SkipStart(Projectile_DepthCharge dc) { return dc != null && !_startingCopy && _copies.Contains(dc.GetInstanceID()); }
 
-        static int _shiftLogged;
-        public static void Reset() { _shiftLogged = 0; _copies.Clear(); _ownFiring = false; OwnFired = 0; OppFired = 0; OwnMortars = 0; OppMortars = 0; }
+        static int _serial;
+        static void Tag(Projectile_DepthCharge dc, int serial, bool own, int targetId) { if (dc != null && dc.isNavalShell) RoundDiag.Tag(dc, serial, own, targetId, Duel.Session.LastSender); }
+        public static void Reset() { RoundDiag.Reset(); _serial = 0; _copies.Clear(); _ownFiring = false; OwnFired = 0; OppFired = 0; OwnMortars = 0; OppMortars = 0; }
+    }
+
+    /// <summary>Gun shell diagnostics (27 Nov): each shell has a serial number shared by the firer's real shell and every
+    /// copy, so the logs of two games can be compared shell by shell: where it first touches the water, and which hull
+    /// compartment it touches. At mission start, the hit volumes (compartment colliders) of our own vessel and every
+    /// puppet are listed, in the vessel's own frame.</summary>
+    public static class RoundDiag
+    {
+        class Info { public int Serial; public bool Own; public int TargetId; public int Firer; public float T0; public bool Splashed; public int Touches; }
+        static readonly System.Collections.Generic.Dictionary<int, Info> _shells = new System.Collections.Generic.Dictionary<int, Info>();
+        const int MaxSerial = 40; // keep the log readable: the first 40 shells per firer
+
+        public static void Reset() { _shells.Clear(); _dumped = false; }
+
+        public static void Tag(Projectile_DepthCharge dc, int serial, bool own, int targetId, int sender)
+        {
+            if (serial > MaxSerial) { _shells.Remove(dc.GetInstanceID()); return; }
+            _shells[dc.GetInstanceID()] = new Info { Serial = serial, Own = own, TargetId = targetId, Firer = own ? Duel.Session.MyId : sender, T0 = Time.time };
+        }
+
+        static string Name(Info i) { return "shell " + (i.Own ? "ours" : "from player " + i.Firer) + " #" + i.Serial; }
+
+        /// <summary>The vessel the shell was aimed at, in this game: our own vessel, or that player's puppet.</summary>
+        static Vessel TargetOf(Info i)
+        {
+            if (i.TargetId < 0) return null;
+            if (Duel.Session != null && i.TargetId == Duel.Session.MyId) return GameDataManager.playervesselsonlevel[0];
+            Opponent o = Duel.InGameById(i.TargetId);
+            return o != null ? o.Puppet : null;
+        }
+
+        static string Rel(Vector3 p, Vessel v)
+        {
+            if (v == null) return "no target";
+            Vector3 l = v.transform.InverseTransformPoint(p); // vessel frame: x starboard, y up, z ahead (local units)
+            Vector3 s = v.transform.lossyScale;
+            return "from target: " + (l.z * s.z * GameDataManager.yardsScale).ToString("F1") + " yd ahead, " + (l.x * s.x * GameDataManager.yardsScale).ToString("F1") + " yd starboard";
+        }
+
+        static string World(Vector3 p) { return "world " + (p.x * GameDataManager.yardsScale).ToString("F1") + ", " + (p.z * GameDataManager.yardsScale).ToString("F1") + " yd"; }
+
+        /// <summary>FixedUpdate postfix: the first frame a tracked shell is in the water.</summary>
+        public static void AfterFixedUpdate(Projectile_DepthCharge dc)
+        {
+            Info i;
+            if (dc == null || !dc.hasSplashed || !_shells.TryGetValue(dc.GetInstanceID(), out i) || i.Splashed) return;
+            i.Splashed = true;
+            Vector3 p = dc.transform.position;
+            Duel.Log("~SHELL " + Name(i) + " splashed after " + (Time.time - i.T0).ToString("F2") + " s, " + World(p) + ", " + Rel(p, TargetOf(i)) + (i.Touches > 0 ? " (touched a hull " + i.Touches + "x first)" : ""));
+            _shells.Remove(dc.GetInstanceID());
+        }
+
+        /// <summary>Compartment.OnTriggerEnter prefix: a tracked shell touches a vessel's compartment.</summary>
+        public static void OnTouch(Compartment c, Collider other)
+        {
+            if (c == null || other == null) return;
+            Projectile_DepthCharge dc = other.GetComponentInParent<Projectile_DepthCharge>();
+            Info i;
+            if (dc == null || !_shells.TryGetValue(dc.GetInstanceID(), out i)) return;
+            i.Touches++;
+            if (i.Touches > 3) return;
+            Vessel v = c.activeVessel;
+            string whose = v == null ? "?" : v.playercontrolled ? "OUR vessel" : Duel.IsPuppet(v) ? Duel.ByPuppet(v).Label + "'s puppet" : v.databaseshipdata.shipPrefabName;
+            Duel.Log("~SHELL " + Name(i) + " touched " + whose + " compartment '" + c.name + "' (collider " + other.GetType().Name + " " + other.name + ") after " + (Time.time - i.T0).ToString("F2") + " s, " + World(dc.transform.position) + ", " + Rel(dc.transform.position, v));
+        }
+
+        static bool _dumped;
+
+        /// <summary>Once per mission, after placement: every compartment collider of our vessel and each puppet.</summary>
+        public static void DumpHitVolumes()
+        {
+            if (_dumped) return;
+            _dumped = true;
+            Vessel own = GameDataManager.playervesselsonlevel[0];
+            Dump("our vessel", own);
+            foreach (Opponent o in Duel.InGame) if (o.Puppet != null) Dump(o.Label + "'s puppet", o.Puppet);
+        }
+
+        static void Dump(string who, Vessel v)
+        {
+            if (v == null) return;
+            try
+            {
+                System.Text.StringBuilder b = new System.Text.StringBuilder();
+                b.Append("~HITVOL ").Append(who).Append(" (").Append(v.databaseshipdata.shipPrefabName).Append(", layer ").Append(v.gameObject.layer)
+                 .Append(", scale ").Append(v.transform.lossyScale.x.ToString("F3")).Append("): ");
+                int n = 0;
+                foreach (Compartment c in v.GetComponentsInChildren<Compartment>(true))
+                {
+                    foreach (Collider col in c.GetComponents<Collider>())
+                    {
+                        Bounds lb = LocalBounds(col, v.transform);
+                        float y = GameDataManager.yardsScale;
+                        b.Append(c.name).Append("[").Append(col.GetType().Name.Replace("Collider", "")).Append(col.isTrigger ? " trig" : "").Append(" L").Append(col.gameObject.layer)
+                         .Append(" z ").Append((lb.min.z * y).ToString("F0")).Append("..").Append((lb.max.z * y).ToString("F0"))
+                         .Append(" x ").Append((lb.min.x * y).ToString("F0")).Append("..").Append((lb.max.x * y).ToString("F0"))
+                         .Append(" y ").Append((lb.min.y * y).ToString("F1")).Append("..").Append((lb.max.y * y).ToString("F1")).Append(" yd] ");
+                        n++;
+                    }
+                }
+                b.Append("(").Append(n).Append(" colliders; waterline at world y 1000, vessel y ").Append(((v.transform.position.y - 1000f) * GameDataManager.yardsScale).ToString("F1")).Append(" yd)");
+                Duel.Log(b.ToString());
+            }
+            catch (System.Exception ex) { Duel.Log("~HITVOL dump failed for " + who + ": " + ex.Message); }
+        }
+
+        /// <summary>A collider's bounds in the vessel's frame, in world-sized units (vessel position at 0).</summary>
+        static Bounds LocalBounds(Collider col, Transform vessel)
+        {
+            // Exact for box and mesh colliders (their own local box, moved to world); else the world AABB.
+            Bounds src; Transform t = col.transform; bool local = true;
+            BoxCollider bc = col as BoxCollider; MeshCollider mc = col as MeshCollider;
+            if (bc != null) src = new Bounds(bc.center, bc.size);
+            else if (mc != null && mc.sharedMesh != null) src = mc.sharedMesh.bounds;
+            else { src = col.bounds; local = false; }
+            Vector3[] corners = new Vector3[8];
+            int k = 0;
+            for (int ix = 0; ix < 2; ix++) for (int iy = 0; iy < 2; iy++) for (int iz = 0; iz < 2; iz++)
+            {
+                Vector3 c = new Vector3(ix == 0 ? src.min.x : src.max.x, iy == 0 ? src.min.y : src.max.y, iz == 0 ? src.min.z : src.max.z);
+                corners[k++] = local ? t.TransformPoint(c) : c;
+            }
+            Quaternion inv = Quaternion.Inverse(vessel.rotation);
+            Bounds lb = new Bounds(inv * (corners[0] - vessel.position), Vector3.zero);
+            for (int j = 1; j < 8; j++) lb.Encapsulate(inv * (corners[j] - vessel.position));
+            return lb;
+        }
+    }
+
+    [HarmonyPatch(typeof(Projectile_DepthCharge), "FixedUpdate")]
+    static class Patch_DepthChargeFixedUpdate_Diag
+    {
+        static void Postfix(Projectile_DepthCharge __instance) { if (Duel.InDuel) { try { RoundDiag.AfterFixedUpdate(__instance); } catch (System.Exception) { } } }
     }
 
     [HarmonyPatch(typeof(Player_RBU), "FireRBUMortar")]

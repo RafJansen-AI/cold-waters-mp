@@ -899,6 +899,7 @@ namespace ColdWatersMP
                 SendOwnState(OwnVessel());
             }
             foreach (Opponent o in InGame) if (o.Puppet != null) DrivePuppet(o);
+            if (PlacementApplied) { try { RoundDiag.DumpHitVolumes(); } catch (System.Exception) { } }
             try { Ghosts.Update(); } catch (System.Exception ex) { Log("~Ghost update failed: " + ex); }
             try { Tracks.Update(); } catch (System.Exception ex) { Log("~Track update failed: " + ex.Message); }
             try { ApplyOpponentColor(); } catch (System.Exception) { }

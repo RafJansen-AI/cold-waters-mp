@@ -710,6 +710,7 @@ namespace ColdWatersMP
     {
         static bool Prefix(Compartment __instance, Collider otherObject)
         {
+            if (Duel.InDuel) { try { RoundDiag.OnTouch(__instance, otherObject); } catch (System.Exception) { } }
             if (Ghosts.IsGhost(__instance.activeVessel)) return false; // ghosts can't be hit
             if (Ambient.IsNeutral(__instance.activeVessel)) return Ambient.AllowHit(__instance, otherObject); // the host decides
             if (!Duel.IsPuppet(__instance.activeVessel)) return true;
