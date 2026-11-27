@@ -47,6 +47,7 @@ namespace ColdWatersMP
             public GameObject Marker, Holder; public Transform Label; public RectTransform Ship;
             public string Name, Text, TextShort; public bool Classified; public int ClassAs = -1, Slot = -1;
             public float X, Z;
+            public Color Col = Color.clear; // the contact's colour when dropped (the slot itself is then reset to green)
         }
         static readonly List<LastKnown> _lastKnown = new List<LastKnown>();
 
@@ -98,8 +99,10 @@ namespace ColdWatersMP
             if (hc != null) Object.Destroy(hc);
             foreach (Button b in h.GetComponentsInChildren<Button>(true)) Object.Destroy(b);
             foreach (LineRenderer l in h.GetComponentsInChildren<LineRenderer>(true)) l.enabled = false;
-            if (txt != null) { txt.text = lk.Text + "?"; txt.raycastTarget = false; Color tc = txt.color; tc.a = 0.45f; txt.color = tc; lk.Label = txt.transform; }
-            if (icon != null) { Color ic = icon.color; ic.a = 0.35f; icon.color = ic; icon.raycastTarget = false; }
+            // the colour the contact had (class colour if classified), faded; the slot was already reset to green
+            bool haveCol = lk.Col.r + lk.Col.g + lk.Col.b > 0f;
+            if (txt != null) { txt.text = lk.Text + "?"; txt.raycastTarget = false; Color tc = haveCol ? lk.Col : txt.color; tc.a = 0.45f; txt.color = tc; lk.Label = txt.transform; }
+            if (icon != null) { Color ic = haveCol ? lk.Col : icon.color; ic.a = 0.35f; icon.color = ic; icon.raycastTarget = false; }
             h.SetActive(true);
             lk.Holder = h;
             SizeLastKnown(lk, tm);
@@ -271,7 +274,8 @@ namespace ColdWatersMP
                     Classified = sm.classifiedByPlayer != null && sm.classifiedByPlayer[i],
                     ClassAs = sm.classifiedByPlayerAsClass != null ? sm.classifiedByPlayerAsClass[i] : -1,
                     Text = mc.contactText != null ? Ghosts.StripTags(mc.contactText.text) : name,
-                    TextShort = Ghosts.StripTags(mc.contactTextShort)
+                    TextShort = Ghosts.StripTags(mc.contactTextShort),
+                    Col = mc.shipDisplayIcon != null ? mc.shipDisplayIcon.color : Color.clear
                 };
             sm.initialDetectedByPlayerName[i] = null;
             if (sm.initialDetectedByPlayer != null) sm.initialDetectedByPlayer[i] = false;
