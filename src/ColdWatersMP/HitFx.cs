@@ -78,8 +78,32 @@ namespace ColdWatersMP
             // Steps in CreateImpactEffect: 5, 7, 12, 18 in. So 57 mm stays smallest, 76 mm one up, 100 mm-5 in two up, 6-16 in largest.
             try { UIFunctions.globaluifunctions.database.CreateImpactEffect(Mathf.Min(_calibre * 2f, 17f), _pos); }
             catch (System.Exception ex) { Duel.Log("~Impact effect failed: " + ex.Message); return true; }
+            try { PlayHitSound(_calibre, _pos, prefab); } catch (System.Exception ex) { Duel.Log("~Hit sound failed: " + ex.Message); }
             result = null; // FixedUpdate discards it
             return false;
+        }
+
+        static AudioClip _small, _medium;
+
+        /// <summary>The splash prefab carries its own sound; the impact effect has none, so hits were silent (Raf, 28 Nov). DotMod
+        /// ships two explosion sounds nothing uses (audio/guns): small below 5 in, medium from 5 in. Set up like the gun's shot
+        /// sound (3D, linear, 10-40 units), on the splash's mixer group so the game's volume settings apply.</summary>
+        static void PlayHitSound(float calibre, Vector3 pos, GameObject splashPrefab)
+        {
+            TextParser tp = UIFunctions.globaluifunctions.textparser;
+            if (_small == null) _small = tp.GetAudioClip("audio/guns/Small Explosion 3.wav");
+            if (_medium == null) _medium = tp.GetAudioClip("audio/guns/Med Explosion 3.wav");
+            AudioClip clip = calibre >= 5f ? (_medium ?? _small) : (_small ?? _medium);
+            if (clip == null) return;
+            GameObject go = new GameObject("CWMP hit sound");
+            go.transform.position = pos;
+            AudioSource a = go.AddComponent<AudioSource>();
+            AudioSource like = splashPrefab != null ? splashPrefab.GetComponentInChildren<AudioSource>(true) : null;
+            if (like != null) { a.outputAudioMixerGroup = like.outputAudioMixerGroup; a.volume = like.volume; }
+            a.clip = clip; a.rolloffMode = AudioRolloffMode.Linear; a.minDistance = 10f; a.maxDistance = 40f;
+            a.spatialBlend = 1f; a.loop = false; a.playOnAwake = false;
+            a.Play();
+            Object.Destroy(go, clip.length + 0.5f);
         }
 
         public static void Reset() { _swallow = false; _logged = 0; }
