@@ -249,9 +249,9 @@ with ships (`Duel.cs`).
 - LA's Mk48 (launch transient heard by the ship) ran past, came round and hit: Udaloy 94% damage from one torpedo
   (the x2.2 rule), hull decal shown on the puppet. The Udaloy's SET-65 (transient heard by the sub) hit the LA: 78%.
 - 0 exceptions on both sides.
-- Open: the host's Udaloy fired SET-65 #2 and #3 about a minute apart without any input from me (one Space + one
-  right-click for #1). Unknown whether that is DotMod player-ship behaviour (auto fire?) or the aim mode staying
-  armed; to check. RBU, VLS (SS-N-14), helicopter, active sonar from a ship and ship vs ship not tested yet.
+- SET-65 #2 and #3 were fired by Raf by hand (the first one wasn't aimed well), not by the game: no auto fire.
+- Not tested yet: RBU, guns (both not synced: their hits would only land on the puppet in the firer's game), VLS
+  (SS-N-14), helicopter, active sonar from a ship, ship vs ship.
 
 ## Order of work
 0. **Look first**: load a `_pl` ship in the testing grounds on a test copy without a duel, to see the controls, HUD
