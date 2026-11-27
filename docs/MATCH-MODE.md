@@ -89,13 +89,37 @@ Key torpedoes (speed in kn as slow,fast setting; range in yd; seeker range in yd
 | USET-80 | 375 | 48 | 19,685 | 1,640 | no |
 | 65-76 (anti-ship) | 557 | 50 / 45 | 54,680 / 89,361 | 2,600 | no |
 
+Sonar of the 1984 front-line boats (from `sensors/01_SONAR`):
+
+| Sub | Hull sonar | Active / passive | Towed array | Towed passive |
+|---|---|---|---|---|
+| Los Angeles '84 | BQQ-5 | 28 / 40 | TB-16 | 48 (noise per knot 2) |
+| Akula | MGK-540 | 28 / 40 | Pelamida | 48 (noise per knot 1) |
+| Victor III, Sierra | MGK-500 | 28 / 40 | MGK-500 TA | 44 |
+| Victor II, Alfa, Mike, Kilo | | 35-40 passive | none | |
+| Virginia ('04) | BQQ-10 | 34 / 46 | | 54 |
+
+So in the files, NATO's sonar edge is not in the 1984 hull sonars (identical numbers) but in towed arrays (many
+Soviet boats have none, Victor III/Sierra's is weaker) and in the post-1999 NATO sets. Not yet checked: how the game
+turns these numbers into detection, and the per-frequency noise signatures (`vessels/signature`), which may favour
+NATO further.
+
+Rocket-launched torpedoes: Soviet only in practice. RPK-6 (Akula, Sierra, Victor II/III, Alfa, Mike, Yasen, Oscar,
+Typhoon, Delta, Papa, Charlie II): 6,000-55,000 yd, drops a UMGT-1 (41 kn, 275 warhead, 1,650 yd seeker) on the
+target area within minutes, no wire. The US Sea Lance (UUM-125B, 71,000 yd, Mk50 payload) exists in the data but no
+sub carries it.
+
 ### What that means
 - **Time period is not enough.** Same-era subs are very different: an Alfa (41 kn, loud, small hull) and a Kilo
   (17 kn, very quiet) are both "1980s Soviet". A 1984 Los Angeles has the best torpedo in the game but no anechoic
   coating; a 1984 Akula is as quiet, dives 60% deeper, has twice the tubes and nearly twice the hull, but its
   torpedo is slower, shorter-ranged and not wire-guided.
-- **NATO's edge is the torpedo, the Soviet edge is the hull.** ADCAP outranges USET-80 by almost 3x and is faster,
-  wire-guided and heavier. Against that, a big Soviet hull needs more hits, and Soviet boats fire and reload faster.
+- **NATO's edge is the torpedo and the towed array, the Soviet edge is the hull and the rocket torpedo.** ADCAP
+  outranges USET-80 by almost 3x and is faster, wire-guided and heavier, and most NATO boats tow an array. Against
+  that, a big Soviet hull needs more hits, Soviet boats fire and reload faster, and the RPK-6 puts a torpedo on a
+  distant contact within minutes (a long-range snap shot NATO has no answer to, but its small torpedo has no wire).
+- **Detection probably matters most.** Whoever hears first chooses when the fight starts. The rating should weigh
+  detection (hull sonar, towed array, baffles) about as high as stealth, and both above firepower.
 - **Hard counters exist**: a Mike sits below the depth limit of every torpedo except ADCAP; an Alfa or Papa outruns
   Mk37s and SET-65s; a 1960s Mk37 at 26 kn cannot catch a 1980s SSN. Pure stat sums would miss these, so pairings
   need a check, not just a number.
@@ -109,7 +133,7 @@ Key torpedoes (speed in kn as slow,fast setting; range in yd; seeker range in yd
    stealth (self noise, anechoic), detection (hull and towed sonar, baffles), weapon (best loaded anti-sub torpedo:
    speed, range, seeker, wire, warhead), firepower (tubes, wires, reload, torpedoes carried) and survival (hull from
    displacement, speed, depth margin against the enemy's torpedo). Weighted sum, scaled to a BR of 1.0-6.0 in 0.3
-   steps. Stealth and weapon weigh most.
+   steps. Stealth and detection weigh most, then weapon (including rocket torpedoes).
 2. **Hand-tuned overrides** in a config file (`cwmp-balance.cfg`, shipped with the mod, same on both sides because
    the handshake already compares data): `usn_84_ssn_los_angeles = 4.3`, and so on. The computed value is only the
    start; the file is what counts.
