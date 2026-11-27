@@ -26,13 +26,19 @@ namespace ColdWatersMP
 
         static Projectile_DepthCharge _lastStarted;
 
+        /// <summary>Our rounds started in a Fire call (by object). A round object the pool makes new gets one more Start from
+        /// Unity a frame after it was fired, which resets its speed at a moment no copy can match: the first shells of a
+        /// mission landed 10-23 yd apart from their copies (tests 27 Nov). In a duel that extra Start is skipped, so every
+        /// round, ours and copies, flies from exactly one aimed Start.</summary>
+        static readonly System.Collections.Generic.HashSet<int> _ownStarted = new System.Collections.Generic.HashSet<int>();
+
         /// <summary>Projectile_DepthCharge.Start postfix inside a Fire call: remember the round. The pool also calls Start on
         /// a reused round when it hands it out (ObjectPool.Instanciate: SendMessage("Start")), BEFORE the weapon has aimed
         /// it; sending at that first Start gave every copy the same unaimed path (Raf's test 27 Nov: tight group, wrong
         /// place, no hits). So the round is sent when the Fire call ends, as the game left it.</summary>
         public static void OnStarted(Projectile_DepthCharge dc)
         {
-            if (_ownFiring && dc != null) _lastStarted = dc;
+            if (_ownFiring && dc != null) { _lastStarted = dc; _ownStarted.Add(dc.GetInstanceID()); }
         }
 
         public static void EndOwnFire()
@@ -155,11 +161,17 @@ namespace ColdWatersMP
         /// at a ship's 2-17 ft (3-player test 27 Nov). That second Start is skipped.</summary>
         static readonly System.Collections.Generic.HashSet<int> _copies = new System.Collections.Generic.HashSet<int>();
         static bool _startingCopy;
-        public static bool SkipStart(Projectile_DepthCharge dc) { return dc != null && !_startingCopy && _copies.Contains(dc.GetInstanceID()); }
+        public static bool SkipStart(Projectile_DepthCharge dc)
+        {
+            if (dc == null || !Duel.InDuel) return false;
+            int id = dc.GetInstanceID();
+            if (_copies.Contains(id)) return !_startingCopy;
+            return !_ownFiring && _ownStarted.Contains(id); // ours, outside a Fire call: Unity's extra Start on a new object
+        }
 
         static int _serial;
         static void Tag(Projectile_DepthCharge dc, int serial, bool own, int targetId) { if (dc != null && dc.isNavalShell) RoundDiag.Tag(dc, serial, own, targetId, Duel.Session.LastSender); }
-        public static void Reset() { RoundDiag.Reset(); _serial = 0; _copies.Clear(); _ownFiring = false; OwnFired = 0; OppFired = 0; OwnMortars = 0; OppMortars = 0; }
+        public static void Reset() { _ownStarted.Clear(); RoundDiag.Reset(); _serial = 0; _copies.Clear(); _ownFiring = false; OwnFired = 0; OppFired = 0; OwnMortars = 0; OppMortars = 0; }
     }
 
     /// <summary>Gun shell diagnostics (27 Nov): each shell has a serial number shared by the firer's real shell and every

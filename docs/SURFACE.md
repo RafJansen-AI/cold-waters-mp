@@ -270,7 +270,28 @@ damage puppets (the puppet's own game reports damage, as for torpedoes).
   The result line counts torpedoes only. Diagnostics: a "~Rounds: ... mortar round exploded at" line per round
   (first 60 per mission).
 
-## Helicopter torpedoes (27 Nov, built, NOT tested; Raf tests in a bigger session)
+## Gun and mortar fixes from Raf's tests (27 Nov, late)
+Four separate faults, found one after the other (logs `logs\raf-*`, `logs\shell-diag-*`):
+1. **Unaimed rounds sent.** The game's pool calls `Start` on a reused round when it hands it out, before the gun or
+   RBU aims it; the mod sent that state. Now the round is sent when the fire call ends.
+2. **Fuse reset on copies.** Unity calls `Start` once more on a new object; for an enemy-side round `Start` sets the
+   fuse to the player's own depth (mortar copies exploded at the victim's exact depth, or at a ship's 2-17 ft). That
+   second `Start` is skipped on copies.
+3. **Extra downward push on copies.** The mod called the round's `FixedUpdate` by hand, as the firer's code does, but
+   outside the physics step, so copies got the downward force twice at launch and splashed 12-47 yd short. Removed.
+4. **First shells of a mission.** A new pool object on the firer's side also got Unity's extra `Start`, which resets
+   its speed after a frame; no copy can match that moment. In a duel it is skipped on our own rounds too (in single
+   player nothing changes).
+Result (Udaloy AK-100 at a stopped Spruance, 2.1 kyd): all 40 shells splash on the same spot in both games (0.0 yd),
+damage identical on both sides (83%), 0 exceptions. Earlier runs: gunfire sank a Perry (213%) with matching damage.
+Raf confirmed the RBU works as intended. Noise correction confirmed: the Spruance (160 self noise, AI version 175) is
+heard at 154.9 dB against its own 154.4 dB. Note: on the firer's screen a hit shows a splash at the hull, because the
+firer's shell may not damage the puppet and carries on into the water; cosmetic.
+Diagnostics kept for now (trim before a release): shell serials, `SHELL ... splashed` and `touched` lines, `HITVOL`
+lines with every compartment collider of our vessel and the puppets (player ships and their AI versions match).
+Also fixed: missions with preset positions (single008, single025) crashed in multiplayer (`PresetLocations`).
+
+## Helicopter torpedoes (27 Nov, built; Raf: they work and do a lot of damage)
 `DotModPlayerAircraft.DropWeapon` creates the torpedo itself (Instantiate + InitialiseTorpedo), so the `FireTube` hook
 missed it. A patch on `DropWeapon` captures it the same way and sends it as a launch from the drop point, flagged like
 a rocket's payload, so the other games give no launch transient from the ship's position (a helicopter drop is not
