@@ -1,6 +1,8 @@
 # Team battles (design draft)
 
-Status: step 1 done on `dev` (27 Nov): several players, host hub, team lobby; the duel still plays 1v1. The game's
+Status: steps 1 and 2 done on `dev` (27 Nov). Step 1: several players, host hub, team lobby. Step 2: hardcore battles,
+every other sub is a contact (teammates too, nothing shared); two lobby teams fight, or all on one team = free for all.
+Tested by Raf: 1v1 regression and 1v2 (Host vs Client + Third) with three copies on one PC, 0 errors. The game's
 15-ship cap can be raised (tested with 29 vessels). Goal: up to 4 against 4, any split (1v3, 2v1, ...), with an
 arcade mode (teams share what they know) and a hardcore mode (each sub only knows what its own crew detects).
 Each player still runs their own game; the mod keeps the games in step, as in the 1v1 duel.
@@ -81,7 +83,7 @@ Two game copies on one PC work today (small windows). Three may be possible; mor
 mostly be tested here; 3v3 and 4v4 need Raf, the laptop and players from the Discord.
 
 ## Open questions
-- Raising the 15-ship cap: safe? (Test early in step 2.)
+- Raising the 15-ship cap: works (29 vessels; a 1v2 uses 10 + neutrals).
 - Teammates in arcade mode: shown as fixed friendly markers on the map only, or also in 3D?
 - Respawn or spectating after your sub is sunk? (Spectating your team's map would be a nice extra.)
 - Should AI subs fill empty slots (for example 2 players vs 3 AI)? Not planned now.
