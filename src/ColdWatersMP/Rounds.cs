@@ -54,6 +54,16 @@ namespace ColdWatersMP
                 int id = dc.depthChargeID; float vel = dc.velocity, sink = dc.sinkSpeed, fuse = dc.dcExplodeDepth;
                 bool depthEx = dc.isDepthExploded, contactEx = dc.isContactExploded, shell = dc.isNavalShell;
                 Vector3 target = dc.targetPosition;
+                // Where we saw the targeted player when firing: their game moves the copy by the gap to where they really are.
+                int targetId = -1; Vector3 seen = Vector3.zero;
+                try
+                {
+                    int ti = UIFunctions.globaluifunctions.playerfunctions.currentTargetIndex;
+                    Vessel[] ev = GameDataManager.enemyvesselsonlevel;
+                    Opponent o = ev != null && ti >= 0 && ti < ev.Length ? Duel.ByPuppet(ev[ti]) : null;
+                    if (o != null) { targetId = o.Id; seen = o.Puppet.transform.position; }
+                }
+                catch (System.Exception) { }
                 Duel.Session.SendGame(G_ROUND, w =>
                 {
                     w.Write(id);
@@ -62,6 +72,7 @@ namespace ColdWatersMP
                     w.Write(vel); w.Write(sink); w.Write(fuse);
                     w.Write(depthEx); w.Write(contactEx); w.Write(shell);
                     w.Write(target.x); w.Write(target.y); w.Write(target.z);
+                    w.Write(targetId); w.Write(seen.x); w.Write(seen.y); w.Write(seen.z);
                 }, true);
                 OwnFired++;
                 if (!shell) { OwnMortars++; Duel.Log("~Rounds: mortar round " + OwnMortars + " sent (fuse " + fuse.ToString("F1") + ")"); }
@@ -79,6 +90,8 @@ namespace ColdWatersMP
             float vel = r.ReadSingle(), sink = r.ReadSingle(), fuse = r.ReadSingle();
             bool depthEx = r.ReadBoolean(), contactEx = r.ReadBoolean(), shell = r.ReadBoolean();
             Vector3 target = new Vector3(r.ReadSingle(), r.ReadSingle(), r.ReadSingle());
+            int targetId = r.ReadInt32();
+            Vector3 seen = new Vector3(r.ReadSingle(), r.ReadSingle(), r.ReadSingle());
             if (!Duel.InDuel || Duel.Session == null || Duel.Session.LastSender == Duel.Session.MyId) return true;
             if (Duel.InGameById(Duel.Session.LastSender) == null) return true; // not in our mission
             try
@@ -87,6 +100,16 @@ namespace ColdWatersMP
                 if (id < 0 || id >= db.Length || db[id] == null || db[id].depthChargeObject == null) { Duel.Log("~Ignored a round of unknown type " + id); return true; }
                 // A fresh object, not one from the game's pool: copies made from reused pool objects flew short (about
                 // 470 yd instead of 2,300; test 27 Nov), fresh ones flew like the firer's. DestroyMe then uses Destroy.
+                // Aimed at us: the firer aimed at our puppet in their game, which can sit several yards off where we really are
+                // (smoothing, delay, the AI twin's model). Shift the copy by that gap, so aim and spread count against our real
+                // position (Raf's test 27 Nov: shells about 10 m off, few hits).
+                if (targetId == Duel.Session.MyId && GameDataManager.playervesselsonlevel != null && GameDataManager.playervesselsonlevel[0] != null)
+                {
+                    Vector3 gap = GameDataManager.playervesselsonlevel[0].transform.position - seen; gap.y = 0f;
+                    float yd = gap.magnitude * GameDataManager.yardsScale;
+                    if (yd < 500f) { pos += gap; target += gap; }
+                    if (_shiftLogged++ < 12) Duel.Log("~Rounds: copy aimed at us, firer saw us " + yd.ToString("F0") + " yd off" + (yd < 500f ? ", shifted" : ", too far, not shifted"));
+                }
                 GameObject go = (GameObject)Object.Instantiate(db[id].depthChargeObject, pos, Quaternion.identity);
                 go.SetActive(true);
                 go.transform.rotation = rot;
@@ -136,7 +159,8 @@ namespace ColdWatersMP
         static bool _startingCopy;
         public static bool SkipStart(Projectile_DepthCharge dc) { return dc != null && !_startingCopy && _copies.Contains(dc.GetInstanceID()); }
 
-        public static void Reset() { _copies.Clear(); _ownFiring = false; OwnFired = 0; OppFired = 0; OwnMortars = 0; OppMortars = 0; }
+        static int _shiftLogged;
+        public static void Reset() { _shiftLogged = 0; _copies.Clear(); _ownFiring = false; OwnFired = 0; OppFired = 0; OwnMortars = 0; OppMortars = 0; }
     }
 
     [HarmonyPatch(typeof(Player_RBU), "FireRBUMortar")]
