@@ -34,64 +34,128 @@ namespace ColdWatersMP
 
         static SensorManager SM { get { return UIFunctions.globaluifunctions.playerfunctions.sensormanager; } }
 
-        // A dropped track leaves a faded "S1 Barbel?" marker at its last known position (Raf, 26 Nov), until mission end.
-        // TacticalMap.TacticalMapZoom doesn't scale a marker as a whole: on every zoom it sets each mapContact's label
-        // scale (textMinMaxSize) and icon size (iconSize * orthFactor). The copy keeps the sizes it was made with, so it
-        // was huge or tiny after a zoom (Raf, 27 Nov). It follows the slot's own marker (Ref), which the game keeps updated.
-        class LastKnown { public GameObject Go; public MapContact Ref; public Transform Txt; public RectTransform Icon; public float X, Z; }
+        // A dropped track leaves a last-known marker: one of the game's own nav markers (the shift-click cross) in the
+        // contact's faded colour, labelled "S1 Barbel?" (Raf, 26 and 27 Nov). It sits in TacticalMap.navMarkers, so the
+        // player removes it with shift-click or "delete all" like any nav marker. While it is on the map, a new opponent
+        // contact within BearingLimit of its bearing revives the track (name, classification, the game's "regained
+        // contact"), however long ago it was dropped: the player decides by keeping or deleting the marker.
+        // Map zoom only changes the camera; the game resizes hazard icons and contact labels on zoom (ScaleHazards,
+        // TacticalMapZoom), so the label copies a live contact label's scale each frame.
+        class LastKnown
+        {
+            public GameObject Marker; public Transform Label;
+            public string Name, Text, TextShort; public bool Classified; public int ClassAs = -1, Slot = -1;
+            public float X, Z;
+        }
         static readonly List<LastKnown> _lastKnown = new List<LastKnown>();
-        const int MaxLastKnown = 12;
 
         public static void Reset()
         {
             _lostAt.Clear(); _lastBrg.Clear(); _seen.Clear(); _thresholdsLogged = false;
-            foreach (LastKnown lk in _lastKnown) if (lk.Go != null) Object.Destroy(lk.Go);
-            _lastKnown.Clear();
+            _lastKnown.Clear(); // the markers are the game's nav markers: its own mission cleanup removes them
         }
 
-        /// <summary>A plain copy of the contact's map marker: no game logic, no button, faded, labelled "name?".</summary>
-        static void LeaveLastKnown(MapContact mc, string label)
+        /// <summary>Place a nav marker at the dropped contact's map position, faded in its colour, with a "name?" label.</summary>
+        static void LeaveLastKnown(MapContact mc, LastKnown lk)
         {
             TacticalMap tm = SM.tacticalmap;
-            if (tm == null || tm.zoomFactor == 0f || mc == null) return;
-            bool wasShown = mc.gameObject.activeSelf; // the game may already have hidden a lost contact's marker
-            Vector3 lp = mc.transform.localPosition;
-            GameObject go = (GameObject)Object.Instantiate(mc.gameObject);
-            go.transform.SetParent(mc.transform.parent, false);
-            go.transform.localRotation = mc.transform.localRotation;
-            go.transform.localScale = mc.transform.localScale;
-            go.name = "CWMP last known " + label;
-            MapContact c = go.GetComponent<MapContact>();
-            Text txt = c != null && c.contactText != null ? c.contactText : go.GetComponentInChildren<Text>(true);
-            Image icon = c != null ? c.shipDisplayIcon : null;
-            if (c != null) Object.Destroy(c);
-            foreach (Button b in go.GetComponentsInChildren<Button>(true)) Object.Destroy(b);
-            foreach (LineRenderer l in go.GetComponentsInChildren<LineRenderer>(true)) l.enabled = false;
-            if (txt != null) { txt.text = label + "?"; Color col = txt.color; col.a = 0.45f; txt.color = col; }
-            if (icon != null) { Color col = icon.color; col.a = 0.35f; icon.color = col; }
-            go.SetActive(true);
-            _lastKnown.Add(new LastKnown { Go = go, Ref = mc, Txt = txt != null ? txt.transform : null, Icon = icon != null ? icon.rectTransform : null, X = lp.x / tm.zoomFactor, Z = lp.y / tm.zoomFactor });
-            if (_lastKnown.Count > MaxLastKnown) { if (_lastKnown[0].Go != null) Object.Destroy(_lastKnown[0].Go); _lastKnown.RemoveAt(0); }
-            PlaceLastKnown();
-            Duel.Log("~Last known marker \"" + label + "?\" left at map " + lp.x.ToString("F0") + "," + lp.y.ToString("F0") + " (zoom " + tm.zoomFactor.ToString("F3") + ", contact marker was " + (wasShown ? "shown" : "hidden") + ")");
+            if (tm == null || tm.zoomFactor == 0f || tm.navMarkers == null) return;
+            Vector3 lp = mc.transform.localPosition; // where the map drew the contact: true or estimated position
+            lk.X = lp.x / tm.zoomFactor; lk.Z = lp.y / tm.zoomFactor;
+            int free = -1;
+            for (int k = 0; k < tm.navMarkers.Length; k++)
+            {
+                GameObject m = tm.navMarkers[k];
+                if (m == null) { if (free < 0) free = k; continue; }
+                // PlaceHazardIconOnMap deletes a marker this close instead of placing one (that's its shift-click toggle)
+                if (Vector3.Distance(m.transform.localPosition, new Vector3(lp.x, lp.y, -5f)) < 2f * tm.orthFactor) { lk.X += 3f * tm.orthFactor / tm.zoomFactor; }
+            }
+            if (free < 0) { Duel.Log("~Last known marker for " + lk.Text + " not placed: all " + tm.navMarkers.Length + " nav markers in use"); return; }
+            Color saved = TacticalMapIcon.navMarkerColor;
+            Color c = mc.shipDisplayIcon != null ? mc.shipDisplayIcon.color : saved; c.a = 0.6f;
+            TacticalMapIcon.navMarkerColor = c;
+            try { tm.PlaceHazardIconOnMap(new Vector3(lk.X, 1000f, lk.Z), 4); }
+            finally { TacticalMapIcon.navMarkerColor = saved; }
+            lk.Marker = tm.navMarkers[free];
+            if (lk.Marker == null) { Duel.Log("~Last known marker for " + lk.Text + " not placed"); return; }
+            lk.Marker.name = "CWMP last known " + lk.Text;
+            if (mc.contactText != null)
+            {
+                GameObject t = (GameObject)Object.Instantiate(mc.contactText.gameObject);
+                t.transform.SetParent(lk.Marker.transform, false);
+                t.transform.localPosition = mc.contactText.transform.localPosition - (mc.shipDisplayIcon != null ? mc.shipDisplayIcon.transform.localPosition : Vector3.zero);
+                t.transform.localRotation = Quaternion.identity;
+                Text txt = t.GetComponent<Text>();
+                if (txt != null) { txt.text = lk.Text + "?"; txt.raycastTarget = false; Color tc = txt.color; tc.a = 0.6f; txt.color = tc; }
+                t.SetActive(true);
+                lk.Label = t.transform;
+            }
+            _lastKnown.Add(lk);
+            Duel.Log("~Last known marker \"" + lk.Text + "?\" left at map " + lp.x.ToString("F0") + "," + lp.y.ToString("F0") + " (nav marker " + (free + 1) + " of " + tm.navMarkers.Length + ")");
         }
 
-        /// <summary>Keep the last-known markers where the game would draw a contact there (follows map zoom).</summary>
-        static void PlaceLastKnown()
+        /// <summary>Forget markers the player deleted; keep the labels the size of the game's contact labels.</summary>
+        static void UpdateLastKnown()
         {
             if (_lastKnown.Count == 0) return;
             TacticalMap tm = SM.tacticalmap;
-            if (tm == null) return;
-            float z = tm.zoomFactor;
-            foreach (LastKnown lk in _lastKnown)
-                if (lk.Go != null)
-                {
-                    lk.Go.transform.localPosition = new Vector3(lk.X * z, lk.Z * z, -5f);
-                    if (lk.Ref == null) continue;
-                    if (lk.Txt != null && lk.Ref.contactText != null) lk.Txt.localScale = lk.Ref.contactText.transform.localScale;
-                    if (lk.Icon != null && lk.Ref.shipDisplayIcon != null) lk.Icon.sizeDelta = lk.Ref.shipDisplayIcon.rectTransform.sizeDelta;
-                }
+            Transform refText = null;
+            if (tm != null && tm.playerMapContact != null && tm.playerMapContact.contactText != null) refText = tm.playerMapContact.contactText.transform;
+            for (int k = _lastKnown.Count - 1; k >= 0; k--)
+            {
+                LastKnown lk = _lastKnown[k];
+                if (lk.Marker == null) { Duel.Log("~Last known marker \"" + lk.Text + "?\" removed by the player"); _lastKnown.RemoveAt(k); continue; }
+                if (lk.Label != null && refText != null) lk.Label.localScale = refText.localScale;
+            }
         }
+
+        /// <summary>The live last-known marker nearest in bearing to brg (within BearingLimit), or null.</summary>
+        static LastKnown NearestLastKnown(float brg, out float diff)
+        {
+            diff = BearingLimit;
+            LastKnown best = null;
+            Vessel own = GameDataManager.playervesselsonlevel != null && GameDataManager.playervesselsonlevel.Length > 0 ? GameDataManager.playervesselsonlevel[0] : null;
+            if (own == null) return null;
+            foreach (LastKnown lk in _lastKnown)
+            {
+                if (lk.Marker == null) continue;
+                float b = Mathf.Atan2(lk.X - own.transform.position.x, lk.Z - own.transform.position.z) * Mathf.Rad2Deg;
+                float d = Mathf.Abs(Mathf.DeltaAngle(brg, b));
+                if (d <= diff) { diff = d; best = lk; }
+            }
+            return best;
+        }
+
+        /// <summary>A new contact on slot `to` takes back a dropped track: name, classification, label; the marker goes.</summary>
+        static void Revive(LastKnown lk, int to, float diff)
+        {
+            SensorManager sm = SM;
+            sm.initialDetectedByPlayerName[to] = lk.Name;
+            if (sm.initialDetectedByPlayer != null) sm.initialDetectedByPlayer[to] = true;
+            if (sm.classifiedByPlayer != null) sm.classifiedByPlayer[to] = lk.Classified;
+            if (sm.classifiedByPlayerAsClass != null && lk.ClassAs >= 0) sm.classifiedByPlayerAsClass[to] = lk.ClassAs;
+            MapContact[] mcs = sm.tacticalmap.mapContact;
+            if (to < mcs.Length && mcs[to] != null)
+            {
+                if (lk.Text != null) mcs[to].contactText.text = lk.Text;
+                if (lk.TextShort != null) mcs[to].contactTextShort = lk.TextShort;
+            }
+            // the old track's solution, decayed since the loss, as for a real sub regained after a while
+            float carried = float.NaN;
+            if (lk.Slot >= 0 && lk.Slot != to && !HasName(lk.Slot) && !Detected(lk.Slot))
+            {
+                carried = CopySlot(sm.solutionQualityOfContacts, lk.Slot, to);
+                CopySlot(sm.timeTrackingContact, lk.Slot, to);
+                CopySlot(sm.solutionRangeErrors, lk.Slot, to);
+            }
+            if (lk.Marker != null) Object.Destroy(lk.Marker);
+            _lastKnown.Remove(lk);
+            try { if (lk.Classified) SetContactName.Invoke(sm, new object[] { to }); }
+            catch (System.Exception ex) { Duel.Log("~Track name refresh failed: " + ex.Message); }
+            Duel.Log("~Track " + lk.Name + " revived on slot " + to + " from its last-known marker (" + diff.ToString("F0") + " deg off"
+                + (float.IsNaN(carried) ? "" : ", solution " + carried.ToString("F0") + "%") + ")");
+        }
+
 
         public static bool HasName(int i)
         {
@@ -131,7 +195,7 @@ namespace ColdWatersMP
         public static void Update()
         {
             if (!Duel.InDuel) return;
-            PlaceLastKnown();
+            UpdateLastKnown();
             TacticalMap tm = SM.tacticalmap;
             if (tm == null || !Duel.PlacementApplied) return; // before placement every position is the mission's, not the duel's
             if (!_thresholdsLogged)
@@ -168,15 +232,25 @@ namespace ColdWatersMP
             SensorManager sm = SM;
             if (!HasName(i)) return;
             string name = sm.initialDetectedByPlayerName[i];
+            MapContact mc = sm.tacticalmap != null && i < sm.tacticalmap.mapContact.Length ? sm.tacticalmap.mapContact[i] : null;
+            LastKnown lk = null;
+            if (leaveMarker && mc != null && !Detected(i))
+                lk = new LastKnown
+                {
+                    Name = name, Slot = i,
+                    Classified = sm.classifiedByPlayer != null && sm.classifiedByPlayer[i],
+                    ClassAs = sm.classifiedByPlayerAsClass != null ? sm.classifiedByPlayerAsClass[i] : -1,
+                    Text = mc.contactText != null ? Ghosts.StripTags(mc.contactText.text) : name,
+                    TextShort = Ghosts.StripTags(mc.contactTextShort)
+                };
             sm.initialDetectedByPlayerName[i] = null;
             if (sm.initialDetectedByPlayer != null) sm.initialDetectedByPlayer[i] = false;
             if (sm.classifiedByPlayer != null) sm.classifiedByPlayer[i] = false;
             if (sm.identifiedByPlayer != null) sm.identifiedByPlayer[i] = false;
             Ghosts.ClearMarks(i); // back to the game's own label first ("decoy?" notes don't carry over)
-            MapContact mc = sm.tacticalmap != null && i < sm.tacticalmap.mapContact.Length ? sm.tacticalmap.mapContact[i] : null;
             if (mc != null && !Detected(i))
             {
-                if (leaveMarker) try { LeaveLastKnown(mc, mc.contactText != null && !string.IsNullOrEmpty(mc.contactText.text) ? mc.contactText.text : name); }
+                if (lk != null) try { LeaveLastKnown(mc, lk); }
                 catch (System.Exception ex) { Duel.Log("~Last-known marker failed: " + ex.Message); }
                 mc.gameObject.SetActive(false);
             }
@@ -208,8 +282,13 @@ namespace ColdWatersMP
                 if (diff <= best) { best = diff; donor = d; }
                 else rejected += " " + SM.initialDetectedByPlayerName[d] + " (lost " + (Time.time - at).ToString("F0") + " s, last brg " + last.ToString("F0") + ", " + diff.ToString("F0") + " deg off)";
             }
-            if (donor >= 0) Transfer(donor, i, best);
-            else if (rejected.Length > 0) Duel.Log("~Track: new contact on slot " + i + " at brg " + brg.ToString("F0") + " is not near a lost track:" + rejected);
+            if (donor >= 0) { Transfer(donor, i, best); return; }
+            float lkDiff;
+            LastKnown lk = NearestLastKnown(brg, out lkDiff);
+            if (lk != null) { Revive(lk, i, lkDiff); return; }
+            if (rejected.Length > 0 || _lastKnown.Count > 0)
+                Duel.Log("~Track: new contact on slot " + i + " at brg " + brg.ToString("F0") + " is not near a lost track or last-known marker:" + rejected
+                    + (_lastKnown.Count > 0 ? " (" + _lastKnown.Count + " marker(s) further off)" : ""));
         }
 
         static void Transfer(int from, int to, float diff)

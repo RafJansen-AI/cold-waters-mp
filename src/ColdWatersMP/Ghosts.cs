@@ -431,6 +431,9 @@ namespace ColdWatersMP
             KeepMarks();
         }
 
+        /// <summary>A label without the "decoy?" / "DECOY" suffix.</summary>
+        public static string StripTags(string t) { return Strip(t); }
+
         static string Strip(string t)
         {
             if (t == null) return t;
