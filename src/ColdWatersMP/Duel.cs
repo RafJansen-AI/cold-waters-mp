@@ -320,6 +320,10 @@ namespace ColdWatersMP
             int ownCls = UIFunctions.globaluifunctions.playerfunctions.playerVesselClass;
             DatabaseShipData[] db = UIFunctions.globaluifunctions.database.databaseshipdata;
             d.noOtherVessels = true;
+            // Missions with preset positions (single008, single025) place each enemy from arrays sized for the mission's
+            // own ships; our bigger enemy list ran off their end in PresetLocations (IndexOutOfRange, Raf 27 Nov). We place
+            // everyone ourselves, so those missions load like the others.
+            if (d.usePresetPositions) { d.usePresetPositions = false; Log("~Mission uses preset positions: turned off for multiplayer"); }
             d.numberOfHelicopters = 0;
             d.numberOfAircraft = 0;
             // Per opponent (by player number): their puppet, then ghost subs for their decoys (same class, parked
