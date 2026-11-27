@@ -46,6 +46,8 @@ namespace ColdWatersMP
             DevKeysOn = _devKeys.Value;
             HudSelfTest.Mode = Config.Bind("Debug", "HudSelfTest", 0, "Testing only (needs DevKeys): at the main menu run BuildHUD with alternating HUD files and log the helm toolbars. 0 off, 1 fix off, 2 fix on").Value;
             Ambient.ForceWhales =Config.Bind("Debug", "ForceWhales", false, "Testing only (needs DevKeys): every duel with traffic on gets whales").Value && _devKeys.Value;
+            int split = Config.Bind("Debug", "TrackSplit", 0, "Testing only (needs DevKeys): a new contact next to a tracked one: 0 coin flip, 1 always swap identities, 2 never").Value;
+            Tracks.SplitMode = _devKeys.Value ? split : 0;
             _fakeHash = Config.Bind("Debug", "FakeDllHash", "", "Testing only (needs DevKeys): pretend Assembly-CSharp.dll has this hash");
             _rangeMin = Config.Bind("Duel", "RangeMinNm", 4f, "Host: shortest starting distance (the actual one is random in the band)");
             _rangeMax = Config.Bind("Duel", "RangeMaxNm", 9f, "Host: longest starting distance");

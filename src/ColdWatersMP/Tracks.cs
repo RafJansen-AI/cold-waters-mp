@@ -337,6 +337,7 @@ namespace ColdWatersMP
         // the old label.
         static int _splitNew = -1, _splitOld = -1; static bool _splitSwap; static float _splitDiff;
         static readonly System.Random _rng = new System.Random();
+        public static int SplitMode; // testing (DevKeys): 0 coin flip, 1 always swap, 2 never
 
         static bool PlanSplit(int i, float brg)
         {
@@ -350,7 +351,8 @@ namespace ColdWatersMP
                 if (diff <= bestDiff) { bestDiff = diff; best = d; }
             }
             if (best < 0) return false;
-            _splitNew = i; _splitOld = best; _splitSwap = _rng.Next(2) == 1; _splitDiff = bestDiff;
+            _splitNew = i; _splitOld = best; _splitDiff = bestDiff;
+            _splitSwap = SplitMode == 1 ? true : SplitMode == 2 ? false : _rng.Next(2) == 1;
             return true;
         }
 
@@ -364,7 +366,11 @@ namespace ColdWatersMP
             SensorManager sm = SM;
             string oldName = sm.initialDetectedByPlayerName[d], newName = sm.initialDetectedByPlayerName[n];
             MapContact[] mcs = sm.tacticalmap.mapContact;
-            if (d < mcs.Length && mcs[d] != null) sm.tacticalmap.ClearMapContactTrail(mcs[d], true);
+            if (d < mcs.Length && mcs[d] != null)
+            {
+                sm.tacticalmap.ClearMapContactTrail(mcs[d], true);
+                mcs[d].gameObject.SetActive(true); // resetTrail also switches the marker off (CheckIfContactLost turns it back on too)
+            }
             if (swap)
             {
                 SwapSlots(d, n);
