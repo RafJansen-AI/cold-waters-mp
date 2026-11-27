@@ -689,7 +689,8 @@ namespace ColdWatersMP
             if (Ghosts.IsGhost(__instance.activeVessel)) return false; // ghosts can't be hit
             if (Ambient.IsNeutral(__instance.activeVessel)) return Ambient.AllowHit(__instance, otherObject); // the host decides
             if (!Duel.IsPuppet(__instance.activeVessel)) return true;
-            return otherObject == null || otherObject.GetComponent<Torpedo>() == null;
+            // Torpedoes, mortar rounds and shells: the puppet's own player decides (their game has a copy).
+            return otherObject == null || (otherObject.GetComponent<Torpedo>() == null && !Rounds.IsRound(otherObject));
         }
     }
 }

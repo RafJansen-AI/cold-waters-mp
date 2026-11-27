@@ -871,6 +871,7 @@ namespace ColdWatersMP
             _ownSunk = false; // keep Result on the overlay until the next mission
             EnvSync.HostNewSeed(); // host: new ocean for the next mission (the clients keep the latest seed they got)
             Weapons.Reset();
+            Rounds.Reset();
             Ghosts.Reset();
             Tracks.Reset();
             _oppColorLogged = false;
@@ -971,6 +972,7 @@ namespace ColdWatersMP
         static void OnGameMessage(byte type, BinaryReader r)
         {
             if (Weapons.OnMessage(type, r)) return;
+            if (Rounds.OnMessage(type, r)) return;
             if (EnvSync.OnMessage(type, r)) return;
             if (Match.OnMessage(type, r)) return;
             if (TimeSync.OnMessage(type, r)) return;

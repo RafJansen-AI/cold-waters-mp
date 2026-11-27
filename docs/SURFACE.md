@@ -253,6 +253,23 @@ with ships (`Duel.cs`).
 - Not tested yet: RBU, guns (both not synced: their hits would only land on the puppet in the firer's game), VLS
   (SS-N-14), helicopter, active sonar from a ship, ship vs ship.
 
+## Guns and RBU (27 Nov ~21:15-21:45, `Rounds.cs`, logs `logs\ships-2-guns` .. `ships-6-rbu-sink`)
+Both are `Projectile_DepthCharge` objects (shells have `isNavalShell`), started by hand in `Player_Guns.FireGun` and
+`Player_RBU.FireRBUMortar`. The firer sends each round (`G_ROUND` = 22: type, position, rotation, speed, sink rate,
+fuse depth, flags); every other game starts a copy, which can damage its own vessel; real rounds and copies never
+damage puppets (the puppet's own game reports damage, as for torpedoes).
+- Guns (host Udaloy AK-100 vs client Arleigh Burke): fire only with a good solution ("low solution" refused at 53%;
+  radar gave 95%). 20 shells sent and copied, the Burke took 1-9% in its own game, the host saw the same damage and
+  hull decals. Guns stay on fire-at-will until stopped.
+- RBU-6000 (host Udaloy vs client LA at 125-180 ft, active sonar solution 95%): fire-at-will only engages submerged
+  targets. 12-round salvos sent and copied. Copies first flew short in two ways: made from reused pool objects, and
+  starting inside the firer's puppet hull (the twin's colliders deflected them). Now copies are fresh objects that
+  ignore the firer's puppet: 10 of 12 landed 21-174 yd from the sub (the host's real rounds 28-117 yd), the LA went
+  to 48% and then sank: VICTORY / DEFEAT on both sides at 1.7 min, 0 exceptions.
+- Known: 2 of 12 copies still fell short (~420 yd from the firer). Cause unknown (rounds colliding with each other?).
+  The result line counts torpedoes only. Diagnostics: a "~Rounds: ... mortar round exploded at" line per round
+  (first 60 per mission).
+
 ## Order of work
 0. **Look first**: load a `_pl` ship in the testing grounds on a test copy without a duel, to see the controls, HUD
    (does `HudFix` handle `default_usn`?), helicopter panel and VLS in normal play.

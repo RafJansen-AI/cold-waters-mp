@@ -312,7 +312,7 @@ namespace ColdWatersMP
         /// <summary>Compartment.OnTriggerEnter prefix on a neutral. Returns false to ignore the touch.</summary>
         public static bool AllowHit(Compartment c, Collider other)
         {
-            if (S == null || !S.IsHost) return other == null || other.GetComponent<Torpedo>() == null; // client: the host decides
+            if (S == null || !S.IsHost) return other == null || (other.GetComponent<Torpedo>() == null && !Rounds.IsRound(other)); // client: the host decides
             return true;
         }
 
