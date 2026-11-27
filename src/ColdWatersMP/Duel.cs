@@ -872,6 +872,33 @@ namespace ColdWatersMP
         }
     }
 
+    /// <summary>Contact colours by side, as single player reads (Raf, 27 Nov): NATO blue, WP red, civilian and
+    /// unidentified green. The game's GetContactColor gives a classified contact "the enemy navy" (navyColors[1]: red on a
+    /// NATO HUD, blue on a Soviet one), so in a duel a NATO class came up red for a NATO player; and it gives any slot
+    /// the enemy colour, classified or not. In a duel: unclassified = navyColors[2]; classified = the colour of the
+    /// class's side (whichever of navyColors[0]/[1] is the blue one for NATO, the other for WP/PLAN); civilian as the game.</summary>
+    [HarmonyPatch(typeof(SensorManager), "GetContactColor")]
+    static class Patch_GetContactColor
+    {
+        static void Postfix(SensorManager __instance, int i, ref Color __result)
+        {
+            try
+            {
+                if (!Duel.InDuel) return;
+                TacticalMap tm = __instance.tacticalmap;
+                Color[] nc = tm != null ? tm.navyColors : null;
+                if (nc == null || nc.Length < 3) return;
+                if (__instance.classifiedByPlayer == null || i < 0 || i >= __instance.classifiedByPlayer.Length || !__instance.classifiedByPlayer[i]) { __result = nc[2]; return; }
+                DatabaseShipData d = UIFunctions.globaluifunctions.database.databaseshipdata[__instance.classifiedByPlayerAsClass[i]];
+                if (d.shipType == "BIOLOGIC" || Database.GetIsCivilian(d.shipPrefabName)) return; // the game's green
+                Color blue = nc[0].b > nc[0].r ? nc[0] : nc[1], red = nc[0].b > nc[0].r ? nc[1] : nc[0];
+                string navy = d.shipPrefabName.Split('_')[0];
+                __result = (navy == "wp" || navy == "plan") ? red : blue;
+            }
+            catch (System.Exception) { }
+        }
+    }
+
     /// <summary>Fairness: give the puppet the player-only quieting the real player gets.</summary>
     [HarmonyPatch(typeof(SensorManager), "GetVesselNoiseLevel")]
     static class Patch_NoiseLevel

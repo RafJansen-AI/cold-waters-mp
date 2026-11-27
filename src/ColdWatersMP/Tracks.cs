@@ -278,6 +278,7 @@ namespace ColdWatersMP
             if (sm.classifiedByPlayer != null) sm.classifiedByPlayer[i] = false;
             if (sm.identifiedByPlayer != null) sm.identifiedByPlayer[i] = false;
             Ghosts.ClearMarks(i); // back to the game's own label first ("decoy?" notes don't carry over)
+            ResetColor(i);
             if (mc != null && !Detected(i))
             {
                 if (lk != null) try { LeaveLastKnown(mc, lk); }
@@ -347,6 +348,7 @@ namespace ColdWatersMP
             if (sm.classifiedByPlayer != null) sm.classifiedByPlayer[from] = false;
             if (sm.identifiedByPlayer != null) sm.identifiedByPlayer[from] = false;
             if (from < mcs.Length && mcs[from] != null) mcs[from].gameObject.SetActive(false);
+            ResetColor(from);
             _lostAt.Remove(from); _lastBrg.Remove(from);
             try { if (sm.classifiedByPlayer != null && sm.classifiedByPlayer[to]) { SetContactName.Invoke(sm, new object[] { to }); ApplyClassColor(to); } }
             catch (System.Exception ex) { Duel.Log("~Track name refresh failed: " + ex.Message); }
@@ -364,6 +366,20 @@ namespace ColdWatersMP
             Color c = sm.GetContactColor(i);
             if (mcs[i].shipDisplayIcon != null) mcs[i].shipDisplayIcon.color = c;
             if (mcs[i].contactText != null) mcs[i].contactText.color = c;
+        }
+
+        /// <summary>A slot that lost its track is unidentified again: the unclassified colour (TacticalMapInit gives every
+        /// contact navyColors[2]). The game never resets it, as single player never takes a classification back, so the
+        /// real sub came back as an unnamed "S3" still in its class colour, a giveaway (Raf, 27 Nov). Alpha is kept.</summary>
+        static void ResetColor(int i)
+        {
+            SensorManager sm = SM;
+            MapContact[] mcs = sm.tacticalmap != null ? sm.tacticalmap.mapContact : null;
+            Color[] nc = sm.tacticalmap != null ? sm.tacticalmap.navyColors : null;
+            if (mcs == null || nc == null || nc.Length < 3 || i < 0 || i >= mcs.Length || mcs[i] == null) return;
+            Color c = nc[2];
+            if (mcs[i].shipDisplayIcon != null) { c.a = mcs[i].shipDisplayIcon.color.a; mcs[i].shipDisplayIcon.color = c; }
+            if (mcs[i].contactText != null) { c.a = mcs[i].contactText.color.a; mcs[i].contactText.color = c; }
         }
 
         static float CopySlot(float[] a, int from, int to)
