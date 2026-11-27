@@ -849,6 +849,29 @@ namespace ColdWatersMP
         static bool Prefix(DotModTowedArray __instance) { return !Duel.IsRemoteArray(__instance); }
     }
 
+    /// <summary>SensorManager.CheckIfIsInBaffles waives the baffles (bearing beyond 150 deg off the bow) for any listener whose
+    /// class has a towed sonar while it makes 0..10 kt, for the player as long as the TOWED subsystem is undamaged. It never
+    /// looks at DotMod's deploy state, so an LA with its array stowed heard straight astern (Raf, 27 Nov). In a duel the
+    /// waiver needs a deployed, intact DotMod array; without one the normal 150 deg baffle applies. Vessels without a
+    /// DotMod array object keep the game's rule.</summary>
+    [HarmonyPatch(typeof(SensorManager), "CheckIfIsInBaffles")]
+    static class Patch_CheckIfIsInBaffles
+    {
+        static bool Prefix(Vessel listeningVessel, Transform noiseLocation, ref bool __result)
+        {
+            try
+            {
+                if (!Duel.InDuel || listeningVessel == null || noiseLocation == null || listeningVessel.vesselmovement == null) return true;
+                DotModTowedArray ta = listeningVessel.vesselmovement.towedArray;
+                if (ta == null || (ta.GetDeployed() && !ta.isDestroyed)) return true; // the game's rule (array out: no baffles below 10 kt)
+                float b = UIFunctions.globaluifunctions.GetBearingToTransform(listeningVessel.transform, noiseLocation);
+                __result = Mathf.Abs(b) > 150f;
+                return false;
+            }
+            catch (System.Exception) { return true; }
+        }
+    }
+
     /// <summary>Fairness: give the puppet the player-only quieting the real player gets.</summary>
     [HarmonyPatch(typeof(SensorManager), "GetVesselNoiseLevel")]
     static class Patch_NoiseLevel
