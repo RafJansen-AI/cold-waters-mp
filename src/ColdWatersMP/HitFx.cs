@@ -74,7 +74,9 @@ namespace ColdWatersMP
             GameObject[] splashes = UIFunctions.globaluifunctions.database.splashes;
             if (splashes == null || System.Array.IndexOf(splashes, prefab) < 0) return true;
             _swallow = false; // before the call: CreateImpactEffect itself uses CreatePooled
-            try { UIFunctions.globaluifunctions.database.CreateImpactEffect(_calibre, _pos); }
+            // Doubled calibre (capped below the 18-in magazine explosion): the effect for the real calibre looked small (Raf, 28 Nov).
+            // Steps in CreateImpactEffect: 5, 7, 12, 18 in. So 57 mm stays smallest, 76 mm one up, 100 mm-5 in two up, 6-16 in largest.
+            try { UIFunctions.globaluifunctions.database.CreateImpactEffect(Mathf.Min(_calibre * 2f, 17f), _pos); }
             catch (System.Exception ex) { Duel.Log("~Impact effect failed: " + ex.Message); return true; }
             result = null; // FixedUpdate discards it
             return false;
