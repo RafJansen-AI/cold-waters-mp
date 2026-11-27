@@ -82,7 +82,10 @@ function Log-Line($line) { Add-Content -LiteralPath $script:ManifestPath -Value 
 
 # Copy a folder tree into $GameDir\$prefix. New files are listed as they are copied; an existing file is first
 # saved to the backup folder and listed as "#replaced <hash we wrote> <path>".
-function Copy-Tree($src, $prefix) {
+# $oldModIsOurs: the folder already holds a Cold Waters MP copied in by hand (0.0.42 and earlier, or the mod zip
+# without JSGME). Its files are then an older version of ours, not game files: replace them and list them as added,
+# so Uninstall removes them instead of putting the old version back.
+function Copy-Tree($src, $prefix, [switch]$oldModIsOurs) {
     $srcFull = (Resolve-Path -LiteralPath $src).Path.TrimEnd('\')
     $known = @{}
     foreach ($l in Get-Content -LiteralPath $script:ManifestPath) { $known[$l] = $true }
@@ -96,6 +99,7 @@ function Copy-Tree($src, $prefix) {
         if (Test-Path -LiteralPath $to) {
             $bak = Join-Path (Join-Path $GameDir $BackupDir) $rel
             $isOurs = $known.ContainsKey($rel) -or (@($known.Keys | Where-Object { $_ -like "#replaced * $rel" }).Count -gt 0)
+            if (-not $isOurs -and $oldModIsOurs) { Log-Line $rel; $known[$rel] = $true; $isOurs = $true }
             if (-not $isOurs -and -not (Test-Path -LiteralPath $bak)) {
                 $bdir = Split-Path -Parent $bak
                 if (-not (Test-Path -LiteralPath $bdir)) { New-Item -ItemType Directory -Path $bdir -Force | Out-Null }
@@ -259,7 +263,9 @@ function Do-Install {
 
     if (-not (Test-Path -LiteralPath $script:ManifestPath)) { Set-Content -LiteralPath $script:ManifestPath -Value '# Files added by Cold Waters MP setup. Uninstall.cmd removes them.' -Encoding UTF8 }
     Say 'Installing Cold Waters MP...'
-    Copy-Tree $ModFiles ''
+    $handCopied = (Test-Path -LiteralPath (Join-Path $GameDir 'BepInEx\plugins\ColdWatersMP.dll')) -and -not (@($ml) -contains 'BepInEx\plugins\ColdWatersMP.dll')
+    if ($handCopied) { Say 'Found an older Cold Waters MP copied in by hand: updating it. Uninstall.cmd will remove it.' }
+    Copy-Tree $ModFiles '' -oldModIsOurs:$handCopied
     Good 'Cold Waters MP installed.'
     Check-DotModData
     Say ''
