@@ -349,10 +349,11 @@ namespace ColdWatersMP
                     cls = ownCls;
                     Log("WARNING: " + Who(o) + " has not chosen a sub yet; using your own class for their puppet");
                 }
-                classes.Add(cls);
-                int sid = db[cls].shipID;
+                int pcls = Ships.PuppetClass(cls); // a player ship shows as its AI twin (typed as a ship)
+                classes.Add(pcls);
+                int sid = db[pcls].shipID;
                 for (int i = o.Base; i < o.Base + 1 + SlotsPer; i++) { d.enemyShipBehaviour[i] = "DEFENSIVE"; d.kmShipClasses[i] = sid; }
-                names += (names.Length > 0 ? ", " : "") + ClassName(cls) + (r > 1 ? " (" + o.Label + ")" : "");
+                names += (names.Length > 0 ? ", " : "") + ClassName(cls) + (pcls != cls ? " as " + ClassName(pcls) : "") + (r > 1 ? " (" + o.Label + ")" : "");
             }
             d.enemyUnitMissionCritical = new bool[n];
             d.kmShipInstances = new int[n];
@@ -628,6 +629,12 @@ namespace ColdWatersMP
                         if (db[id] != null && db[id].shipType == "SUBMARINE" && Patch_PopulateLevelLoadData_AllSubs.IsRealSub(db[id].shipPrefabName)
                             && sides.Contains(Side(db[id].shipPrefabName)) && !book.Contains(id)) book.Add(id);
                 }
+                // An opponent in a ship: the book also gets the ships of their side (as the AI twins they show as).
+                bool anyShip = false;
+                foreach (int c in classes) if (db[c].shipType != "SUBMARINE") anyShip = true;
+                if (anyShip)
+                    foreach (int t in Ships.Twins(Patch_PopulateLevelLoadData_AllSubs.AllShips()))
+                        if (sides.Contains(Side(db[t].shipPrefabName)) && !book.Contains(t)) book.Add(t);
                 foreach (int c in classes) if (!book.Contains(c)) book.Add(c);
                 book = OnePerClass(book, db, classes);
                 int subs = book.Count;
@@ -636,7 +643,7 @@ namespace ColdWatersMP
                 pf.currentSignatureIndex = Random.Range(0, subs); // a random sub page, so the first page says nothing; no bounds check in the game
                 string pages = "";
                 foreach (int c in classes) pages += (pages.Length > 0 ? ", " : "") + (book.IndexOf(c) + 1);
-                Log("ID book: " + subs + " " + side + " submarines" + (book.Count > subs ? " + " + (book.Count - subs) + " neutral classes" : "")
+                Log("ID book: " + subs + " " + side + (anyShip ? " submarines and ships" : " submarines") + (book.Count > subs ? " + " + (book.Count - subs) + " neutral classes" : "")
                     + "; " + (classes.Count == 1 ? "opponent's class on page " : "opponents' classes on pages ") + pages);
             }
             catch (System.Exception ex) { Log("ID book not changed: " + ex.Message); }
@@ -983,7 +990,7 @@ namespace ColdWatersMP
                     if (mine != o.ClassName) Log("WARNING: " + who + "'s sub " + o.ClassName + " is " + mine + " here (data mismatch?)");
                     Log(who + " chose " + o.ClassName);
                     if (_heldLoad != null && AllChosen && !AnyInOldMission && (Session.IsHost || Match.HaveHostMatch)) ReleaseHeldLoad(who + " chose " + o.ClassName);
-                    if (InDuel && o.Puppet != null && o.Puppet.databaseshipdata.shipPrefabName != o.ClassName)
+                    if (InDuel && o.Puppet != null && o.Puppet.databaseshipdata.shipPrefabName != ClassName(Ships.PuppetClass(o.Class)))
                         Log("WARNING: " + who + "'s puppet is a " + o.Puppet.databaseshipdata.shipPrefabName + " but they chose " + o.ClassName + ". Pick all subs before starting any mission.");
                     break;
                 case G_PLACEMENT:
@@ -1218,6 +1225,8 @@ namespace ColdWatersMP
             }
             // The player formula subtracts the RPG bonus before compression.
             if (__instance.passiveCompressionFactor != 0f) __result -= opp.RpgSelfNoiseBonus / __instance.passiveCompressionFactor;
+            // A player ship's puppet is its AI twin, which has its own self noise: use the player's class.
+            __result += Ships.NoiseCorrection(opp.Class, activeVessel, __instance.passiveCompressionFactor);
             // A decoy copies the hull's noise, not the sonar's. The game's AI rule has already added output/4 for a pinging
             // vessel (when it was below the output), so take that off again.
             float hull = __result;

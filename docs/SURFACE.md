@@ -237,6 +237,21 @@ Krivak, Kara in the middle; Knox, Kotlin, Riga, Chinese frigates at the bottom.
 - Not tried yet: firing tubes or VLS at a target, active sonar, guns, a ship in a duel.
 - Logs: `logs\ship-look-0` (local folder).
 
+## Step 1 test (27 Nov ~21:00, two copies, logs `logs\ships-1a`)
+Host Udaloy (`wp_84_bpk_udaloy_pl`) vs client Los Angeles '84, testing grounds, 1.6 nm start. Code: `Ships.cs`
+(twin lookup, noise correction, no AI helicopters), vessel list with ships (`Match.cs`), puppet as twin and ID book
+with ships (`Duel.cs`).
+- Vessel list: 111 vessels (subs + ships). The client's puppet was `wp_84_bpk_udaloy_ai`, AI off; no AI helicopter
+  appeared. ID book: 57 Soviet/Chinese subs and ships; the LA classified the contact as "S1 Udaloy".
+- Noise: the client heard the ship at 150.9 dB = the player Udaloy's own noise (170 self noise), not the twin's
+  (180). Signals at 3.1 kyd: sub hears ship 37.7, ship hears sub 20.5 (17 dB apart, as computed).
+- LA's Mk48 (launch transient heard by the ship) ran past, came round and hit: Udaloy 94% damage from one torpedo
+  (the x2.2 rule), hull decal shown on the puppet. The Udaloy's SET-65 (transient heard by the sub) hit the LA: 78%.
+- 0 exceptions on both sides.
+- Open: the host's Udaloy fired SET-65 #2 and #3 about a minute apart without any input from me (one Space + one
+  right-click for #1). Unknown whether that is DotMod player-ship behaviour (auto fire?) or the aim mode staying
+  armed; to check. RBU, VLS (SS-N-14), helicopter, active sonar from a ship and ship vs ship not tested yet.
+
 ## Order of work
 0. **Look first**: load a `_pl` ship in the testing grounds on a test copy without a duel, to see the controls, HUD
    (does `HudFix` handle `default_usn`?), helicopter panel and VLS in normal play.

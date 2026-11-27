@@ -337,12 +337,14 @@ namespace ColdWatersMP
                 PlayerFunctions pf = UIFunctions.globaluifunctions.playerfunctions;
                 System.Collections.Generic.List<int> list = new System.Collections.Generic.List<int>();
                 DatabaseShipData[] db = UIFunctions.globaluifunctions.database.databaseshipdata;
-                if (pf.playerVesselList != null) // the mission's own subs first (no surface ships: not supported in duels)
+                if (pf.playerVesselList != null) // the mission's own subs and ships first
                     foreach (int id in pf.playerVesselList)
-                        if (id >= 0 && id < db.Length && db[id] != null && IsRealSub(db[id].shipPrefabName)) list.Add(id);
+                        if (id >= 0 && id < db.Length && db[id] != null && (IsRealSub(db[id].shipPrefabName) || Ships.IsPlayerShip(db[id].shipPrefabName))) list.Add(id);
                 foreach (int id in _allSubs) if (!list.Contains(id)) list.Add(id);
+                int ships = 0;
+                foreach (int id in AllShips()) if (!list.Contains(id)) { list.Add(id); ships++; }
                 pf.playerVesselList = list.ToArray();
-                Duel.Log("~Sub choice: " + list.Count + " subs available in multiplayer");
+                Duel.Log("~Vessel choice: " + list.Count + " vessels available in multiplayer (" + ships + " ships added)");
             }
             catch (System.Exception ex) { Duel.Log("Could not widen the sub choice: " + ex.Message); }
         }
@@ -363,7 +365,18 @@ namespace ColdWatersMP
             return _allSubs;
         }
 
-        static int[] LoadAllSubs(TextParser tp)
+        static int[] _allShips;
+
+        /// <summary>Every selectable player ship (single001's PlayerVessels ending in _pl), for the vessel choice.</summary>
+        public static int[] AllShips()
+        {
+            if (_allShips == null && UIFunctions.globaluifunctions != null) _allShips = LoadAll(UIFunctions.globaluifunctions.textparser, true);
+            return _allShips ?? new int[0];
+        }
+
+        static int[] LoadAllSubs(TextParser tp) { return LoadAll(tp, false); }
+
+        static int[] LoadAll(TextParser tp, bool ships)
         {
             string[] lines = tp.OpenTextDataFile("missions/single/single001");
             System.Collections.Generic.List<int> ids = new System.Collections.Generic.List<int>();
@@ -377,7 +390,8 @@ namespace ColdWatersMP
                     int id = tp.GetShipID(n);
                     if (id < 0 || id >= UIFunctions.globaluifunctions.database.databaseshipdata.Length) continue;
                     DatabaseShipData d = UIFunctions.globaluifunctions.database.databaseshipdata[id];
-                    if (d != null && d.shipType == "SUBMARINE" && IsRealSub(d.shipPrefabName)) ids.Add(id);
+                    if (d == null || d.shipType != "SUBMARINE" || ids.Contains(id)) continue;
+                    if (ships ? Ships.IsPlayerShip(d.shipPrefabName) : IsRealSub(d.shipPrefabName)) ids.Add(id);
                 }
             }
             return ids.ToArray();
