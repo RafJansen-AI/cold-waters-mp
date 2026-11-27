@@ -65,9 +65,14 @@ namespace ColdWatersMP
         }
 
         /// <summary>AfterLoadLevel: enemies 1.. are the ghosts. Turn their AI off and send them away.</summary>
+        /// <summary>This mission's ghost vessels, kept after the duel ends (Reset) until the next mission is set up: the
+        /// action report is built after the mod has already left the duel.</summary>
+        public static readonly List<Vessel> ReportHidden = new List<Vessel>();
+
         public static void Setup()
         {
             Reset();
+            ReportHidden.Clear();
             Duel.LastPuppetNoise = 100f; // the first sonar check sets the real value
             Vessel[] ev = GameDataManager.enemyvesselsonlevel;
             if (ev == null) return;
@@ -80,6 +85,7 @@ namespace ColdWatersMP
                 foreach (Collider col in v.GetComponentsInChildren<Collider>(true)) col.enabled = false; // no hits, no collisions
                 Park(v);
                 _ghosts.Add(new Ghost { V = v });
+                ReportHidden.Add(v);
             }
             Duel.Log("~Ghosts: " + _ghosts.Count + " ghost sub(s) ready for decoys");
             try { SetupButton(); } catch (System.Exception ex) { Duel.Log("~Code book DECOY button failed: " + ex.Message + " (Ctrl+F5 still works)"); }
@@ -731,6 +737,35 @@ namespace ColdWatersMP
             int i = UIFunctions.globaluifunctions.playerfunctions.currentTargetIndex;
             string want = (_marked.Contains(i) || _uncloaked.Contains(i)) ? "[DECOY]" : "DECOY";
             if (_decoyLabel.text != want) _decoyLabel.text = want;
+        }
+    }
+
+    /// <summary>The action report (UIFunctions.GetEngagedContactsList) lists every enemy-list vessel that isn't
+    /// biological, an oil rig, civilian or removed from combat: in a duel that was the opponent plus all decoy ghost
+    /// slots, used or not (Raf, 27 Nov). The ghosts count as removed from combat while the list is built only.</summary>
+    [HarmonyPatch(typeof(UIFunctions), "GetEngagedContactsList")]
+    static class Patch_GetEngagedContactsList
+    {
+        static void Prefix(out List<Vessel> __state)
+        {
+            __state = null;
+            try
+            {
+                Vessel[] ev = GameDataManager.enemyvesselsonlevel;
+                if (ev == null) return;
+                foreach (Vessel v in ev)
+                    if (v != null && !v.vesselRemovedFromCombat && Ghosts.ReportHidden.Contains(v))
+                    {
+                        if (__state == null) __state = new List<Vessel>();
+                        v.vesselRemovedFromCombat = true; __state.Add(v);
+                    }
+            }
+            catch (System.Exception) { }
+        }
+
+        static void Postfix(List<Vessel> __state)
+        {
+            if (__state != null) foreach (Vessel v in __state) if (v != null) v.vesselRemovedFromCombat = false;
         }
     }
 
