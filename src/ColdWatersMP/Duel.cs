@@ -320,6 +320,53 @@ namespace ColdWatersMP
             return (n == "wp" || n == "plan") ? "Soviet/Chinese" : "NATO";
         }
 
+        /// <summary>DotMod has era versions of a class (usn_68_ss_barbel, usn_84_ss_barbel). Both in the book gave doubled
+        /// pages (Skipjack's two share one signature image), and the game's class check (CompareVesselPrefabNames: name
+        /// without the navy prefix) treats them as different classes, so picking the other era's identical page was a
+        /// wrong classification (Raf, 27 Nov). Keep one page per class: the opponent's era where the class has it,
+        /// else the nearest era, so the opponent's own page doesn't stand out by era.</summary>
+        static List<int> OnePerClass(List<int> book, DatabaseShipData[] db, int oppCls)
+        {
+            int oppEra = Era(db[oppCls].shipPrefabName);
+            Dictionary<string, int> pick = new Dictionary<string, int>();
+            List<string> order = new List<string>();
+            foreach (int id in book)
+            {
+                string key = ClassKey(db[id].shipPrefabName);
+                int cur;
+                if (!pick.TryGetValue(key, out cur)) { pick[key] = id; order.Add(key); continue; }
+                if (cur == oppCls) continue;
+                if (id == oppCls || EraDistance(Era(db[id].shipPrefabName), oppEra) < EraDistance(Era(db[cur].shipPrefabName), oppEra)) pick[key] = id;
+            }
+            List<int> result = new List<int>();
+            foreach (string k in order) result.Add(pick[k]);
+            if (result.Count < book.Count) Log("~ID book: " + (book.Count - result.Count) + " era duplicate(s) left out (one page per class, era " + oppEra + " first)");
+            return result;
+        }
+
+        /// <summary>The prefab name without its era number: usn_84_ss_barbel -> usn_ss_barbel.</summary>
+        static string ClassKey(string prefab)
+        {
+            System.Text.StringBuilder b = new System.Text.StringBuilder();
+            foreach (string p in prefab.Split('_'))
+            {
+                int n;
+                if (int.TryParse(p, out n)) continue;
+                if (b.Length > 0) b.Append('_');
+                b.Append(p);
+            }
+            return b.ToString();
+        }
+
+        /// <summary>The era number in a prefab name (84 in usn_84_ss_barbel), or -1.</summary>
+        static int Era(string prefab)
+        {
+            foreach (string p in prefab.Split('_')) { int n; if (int.TryParse(p, out n)) return n; }
+            return -1;
+        }
+
+        static int EraDistance(int a, int b) { return a < 0 || b < 0 ? 1000 : System.Math.Abs(a - b); }
+
         static void SetIdBook(int oppCls)
         {
             try
@@ -342,6 +389,7 @@ namespace ColdWatersMP
                             && Side(db[id].shipPrefabName) == side && !book.Contains(id)) book.Add(id);
                 }
                 if (!book.Contains(oppCls)) book.Add(oppCls);
+                book = OnePerClass(book, db, oppCls);
                 int subs = book.Count;
                 foreach (int c in Ambient.Classes()) if (!book.Contains(c)) book.Add(c); // neutral traffic, so it can be classified too
                 pf.otherVesselList = book.ToArray();
