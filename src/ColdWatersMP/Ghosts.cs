@@ -574,7 +574,7 @@ namespace ColdWatersMP
             return null;
         }
 
-        static GameObject BuildProxy(GameObject prefab)
+        static GameObject BuildProxy(GameObject prefab, DatabaseWeaponData wd)
         {
             if (prefab == null) return null;
             Transform pr = prefab.transform;
@@ -598,7 +598,38 @@ namespace ColdWatersMP
                 parts++;
             }
             if (parts == 0) { Object.Destroy(root); return null; }
+            AddJet(root, prefab, wd);
             return root;
+        }
+
+        /// <summary>The propulsion jet: Torpedo.InitialiseParticles adds the weapon's cavitationParticle at its
+        /// cavitationTransform when a torpedo starts, so a mesh-only copy had none (a floating torpedo, Raf 27 Nov).
+        /// Same effect here, at the same spot on the model, without its sound.</summary>
+        static void AddJet(GameObject root, GameObject prefab, DatabaseWeaponData wd)
+        {
+            try
+            {
+                if (wd == null || wd.cavitationParticle == null) return;
+                Torpedo pt = prefab.GetComponent<Torpedo>();
+                Transform cav = pt != null ? pt.cavitationTransform : null;
+                Transform pr = prefab.transform;
+                GameObject jet = (GameObject)Object.Instantiate(wd.cavitationParticle);
+                jet.name = "CWMP_DecoyJet";
+                jet.transform.SetParent(root.transform, false);
+                if (cav != null)
+                {
+                    jet.transform.localPosition = pr.InverseTransformPoint(cav.position);
+                    jet.transform.localRotation = Quaternion.Inverse(pr.rotation) * cav.rotation;
+                }
+                // the game keeps the effect's own world scale (SetParent with worldPositionStays): undo the model's scale
+                Vector3 s = root.transform.localScale;
+                jet.transform.localScale = new Vector3(s.x != 0f ? 1f / s.x : 1f, s.y != 0f ? 1f / s.y : 1f, s.z != 0f ? 1f / s.z : 1f);
+                foreach (AudioSource a in jet.GetComponentsInChildren<AudioSource>(true)) a.enabled = false;
+                jet.SetActive(true);
+                foreach (ParticleSystem ps in jet.GetComponentsInChildren<ParticleSystem>(true)) ps.Play();
+                if (cav == null) Duel.Log("~Decoy look: no jet position on the model, jet at its centre");
+            }
+            catch (System.Exception ex) { Duel.Log("~Decoy look: no jet (" + ex.Message + ")"); }
         }
 
         static void ApplyLook(int i)
@@ -611,7 +642,7 @@ namespace ColdWatersMP
             {
                 l = new Look { V = v };
                 DatabaseWeaponData wd = DecoyWeaponFor(i, v);
-                if (wd != null) l.Proxy = BuildProxy(wd.weaponObject);
+                if (wd != null) l.Proxy = BuildProxy(wd.weaponObject, wd);
                 if (l.Proxy == null) Duel.Log("~Decoy look: no decoy model for contact " + i + ", only the map changes");
                 _looks[i] = l;
             }

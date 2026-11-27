@@ -99,7 +99,7 @@ namespace ColdWatersMP
             _ownWantsTC = true;
             Send(G_TC, true);
             if (_oppWantsTC) { Duel.Log("Time compression on (all agreed)"); return true; }
-            Say("Time compression requested: it starts when " + Them + " also ask for it");
+            Say("Time compression requested: it starts when " + Them + (Duel.Opps.Count > 1 ? " also ask" : " also asks") + " for it");
             return false;
         }
 
