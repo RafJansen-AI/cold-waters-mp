@@ -33,7 +33,7 @@ namespace ColdWatersMP
         static readonly List<Entry> _list = new List<Entry>(); // this mission's list (rolled by the host or received)
         static readonly List<int> _pool = new List<int>();     // every class that could have spawned: all go in the ID book
         public static int Count { get { return _list.Count; } }
-        public static int Start { get { return 1 + Ghosts.Slots; } }
+        public static int Start { get { return Duel.NeutralStart; } }
 
         class Remote { public Vector3 Pos; public float Yaw, SpeedZ, Damage, T, LocalT; public bool Sinking, Have; }
         static Remote[] _remote = new Remote[0];
@@ -219,7 +219,7 @@ namespace ColdWatersMP
         /// Put each one somewhere around the opponent instead, 1.5 to 7 nm away. The client gets the position with the first state.</summary>
         static void PlaceWhales(Vessel[] ev, int n)
         {
-            Vessel centre = Duel.Puppet != null ? Duel.Puppet : GameDataManager.playervesselsonlevel[0];
+            Vessel centre = Duel.Puppet != null ? Duel.Puppet : GameDataManager.playervesselsonlevel[0]; // around the first opponent
             if (centre == null) return;
             for (int i = 0; i < n; i++)
             {
@@ -333,15 +333,20 @@ namespace ColdWatersMP
         /// <summary>Host: did this opponent torpedo copy hit a neutral (not us)?</summary>
         public static bool TookNeutralHit(Torpedo t) { return t != null && _hitNeutral.Remove(t); }
 
-        public static void SendHit(int torpId)
+        public static void SendHit(int firerId, int torpId)
         {
-            S.SendGame(G_AMB_HIT, w => w.Write(torpId), true);
-            Duel.Log("Opponent torpedo #" + torpId + " hit a neutral vessel");
+            S.SendGame(G_AMB_HIT, w => { w.Write(firerId); w.Write(torpId); }, true);
+            Duel.Log("Torpedo #" + torpId + " of player " + firerId + " hit a neutral vessel");
         }
 
         public static bool OnMessage(byte type, BinaryReader r)
         {
-            if (type == G_AMB_HIT) { Weapons.OwnTorpedoHitNeutral(r.ReadInt32()); return true; }
+            if (type == G_AMB_HIT)
+            {
+                int firer = r.ReadInt32(), id = r.ReadInt32();
+                if (firer == S.MyId) Weapons.OwnTorpedoHitNeutral(id); else Weapons.OtherTorpedoHitNeutral(firer, id);
+                return true;
+            }
             if (type != G_AMB_STATE) return false;
             float t = r.ReadSingle(); int n = r.ReadInt32();
             if (n < 0 || n > 16) return true; // malformed

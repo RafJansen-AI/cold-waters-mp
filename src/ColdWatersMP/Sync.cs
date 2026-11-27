@@ -3,6 +3,7 @@
 // or the game stopping it for an event (contact, damage, shallow water ...), stops it for both.
 // Pause: blocked by default (the exit menu opens but the game runs). With the host's "pause both" setting, one
 // player's exit menu pauses both games until that player closes it.
+using System.Collections.Generic;
 using System.IO;
 using HarmonyLib;
 using UnityEngine;
@@ -12,8 +13,23 @@ namespace ColdWatersMP
     public static class TimeSync
     {
         public const byte G_TC = 16, G_PAUSE = 17;
-        static bool _ownWantsTC, _oppWantsTC, _bypass;
-        static bool _ownPaused, _oppPaused;
+        static bool _ownWantsTC, _bypass;
+        static bool _ownPaused;
+        // Other players who ask for time compression / have paused, by player number. With more than one other
+        // player, TC needs every one of them; one stop stops it for all.
+        static readonly HashSet<int> _wantTC = new HashSet<int>(), _paused = new HashSet<int>();
+
+        static bool _oppWantsTC
+        {
+            get
+            {
+                if (Duel.InGame.Count == 0) return false;
+                foreach (Opponent o in Duel.InGame) if (!_wantTC.Contains(o.Id) && Duel.Opps.Contains(o)) return false;
+                return true;
+            }
+        }
+        static bool _oppPaused { get { return _paused.Count > 0; } }
+        static string Them { get { return Duel.Opps.Count > 1 ? "the other players" : "your opponent"; } }
 
         public static bool OppPaused { get { return _oppPaused; } }
         public static string StatusLine
@@ -22,10 +38,10 @@ namespace ColdWatersMP
             {
                 if (!Duel.InDuel) return "";
                 string s = "";
-                if (_ownWantsTC && !_oppWantsTC) s += "TC requested, waiting for opponent";
-                else if (_oppWantsTC && !_ownWantsTC) s += "Opponent requests TC (press time compression to agree)";
-                else if (_ownWantsTC && _oppWantsTC) s += "TC on (both agreed)";
-                if (_oppPaused) s += (s.Length > 0 ? " | " : "") + "PAUSED by opponent";
+                if (_ownWantsTC && !_oppWantsTC) s += "TC requested, waiting for " + (Duel.Opps.Count > 1 ? "the other players (" + _wantTC.Count + " of " + Duel.InGame.Count + ")" : "opponent");
+                else if (_wantTC.Count > 0 && !_ownWantsTC) s += (Duel.Opps.Count > 1 ? "Time compression requested" : "Opponent requests TC") + " (press time compression to agree)";
+                else if (_ownWantsTC && _oppWantsTC) s += "TC on (" + (Duel.Opps.Count > 1 ? "all" : "both") + " agreed)";
+                if (_oppPaused) s += (s.Length > 0 ? " | " : "") + "PAUSED by " + (Duel.Opps.Count > 1 ? "another player" : "opponent");
                 return s;
             }
         }
@@ -53,7 +69,7 @@ namespace ColdWatersMP
         {
             bool wasPausedByOpp = _oppPaused;
             if (TCOn && Duel.InDuel) { try { ToggleTC(); } catch (System.Exception) { } } // back to 1x
-            _ownWantsTC = false; _oppWantsTC = false; _ownPaused = false; _oppPaused = false;
+            _ownWantsTC = false; _wantTC.Clear(); _ownPaused = false; _paused.Clear();
             if (wasPausedByOpp && Time.timeScale == 0f) { Time.timeScale = 1f; Time.fixedDeltaTime = 0.02f; }
         }
 
@@ -66,9 +82,9 @@ namespace ColdWatersMP
             if (TCOn)
             {
                 // Turning off: always allowed, and stops it for the opponent too. Both must ask again to restart.
-                _ownWantsTC = false; _oppWantsTC = false;
+                _ownWantsTC = false; _wantTC.Clear();
                 Send(G_TC, false);
-                Duel.Log("Time compression stopped (both)");
+                Duel.Log("Time compression stopped (for all)");
                 return true;
             }
             if (!Match.TimeCompressionAllowed) { Say("Time compression is off in this match"); return false; }
@@ -82,8 +98,8 @@ namespace ColdWatersMP
             }
             _ownWantsTC = true;
             Send(G_TC, true);
-            if (_oppWantsTC) { Duel.Log("Time compression on (both agreed)"); return true; }
-            Say("Time compression requested: it starts when your opponent also asks for it");
+            if (_oppWantsTC) { Duel.Log("Time compression on (all agreed)"); return true; }
+            Say("Time compression requested: it starts when " + Them + " also ask for it");
             return false;
         }
 
@@ -91,7 +107,7 @@ namespace ColdWatersMP
         public static void OnStopTimeCompression()
         {
             if (!Duel.InDuel || _bypass || PF == null) return;
-            if (TCOn || _ownWantsTC) { _ownWantsTC = false; if (TCOn) _oppWantsTC = false; Send(G_TC, false); Duel.Log("Time compression stopped/withdrawn"); }
+            if (TCOn || _ownWantsTC) { _ownWantsTC = false; if (TCOn) _wantTC.Clear(); Send(G_TC, false); Duel.Log("Time compression stopped/withdrawn"); }
         }
 
         /// <summary>PlayerMessage postfix: a crew callout of a launch transient or a torpedo locking on to us
@@ -114,7 +130,7 @@ namespace ColdWatersMP
             {
                 _ownPaused = true;
                 Send(G_PAUSE, true);
-                Duel.Log("Paused: the opponent's game is paused too");
+                Duel.Log("Paused: the other games are paused too");
                 return;
             }
             Time.timeScale = 1f;
@@ -135,33 +151,37 @@ namespace ColdWatersMP
             if (type != G_TC && type != G_PAUSE) return false;
             bool on = r.ReadBoolean();
             if (!Duel.InDuel || PF == null) return true;
+            int from = Duel.Session.LastSender;
+            bool many = Duel.Opps.Count > 1;
             if (type == G_TC)
             {
-                _oppWantsTC = on;
+                if (on) _wantTC.Add(from); else _wantTC.Remove(from);
                 if (on)
                 {
-                    if (_ownWantsTC && !TCOn) { ToggleTC(); Duel.Log("Time compression on (both agreed)"); }
-                    else if (!_ownWantsTC) Say("Opponent requests time compression: press time compression to agree");
+                    if (_ownWantsTC && _oppWantsTC && !TCOn) { ToggleTC(); Duel.Log("Time compression on (all agreed)"); }
+                    else if (!_ownWantsTC) Say((many ? "Another player requests" : "Opponent requests") + " time compression: press time compression to agree");
                 }
                 else
                 {
-                    if (TCOn) { _ownWantsTC = false; ToggleTC(); Say("Opponent stopped time compression"); }
-                    else if (_ownWantsTC) { _ownWantsTC = false; Say("Time compression: opponent declined or stopped; ask again"); }
+                    // one player's stop stops it for everyone: forget all requests
+                    _wantTC.Clear();
+                    if (TCOn) { _ownWantsTC = false; ToggleTC(); Say((many ? "Another player" : "Opponent") + " stopped time compression"); }
+                    else if (_ownWantsTC) { _ownWantsTC = false; Say("Time compression: " + (many ? "another player" : "opponent") + " declined or stopped; ask again"); }
                 }
                 return true;
             }
             // G_PAUSE
-            _oppPaused = on;
+            if (on) _paused.Add(from); else _paused.Remove(from);
             if (on)
             {
                 if (TCOn) { _ownWantsTC = false; ToggleTC(); }
                 Time.timeScale = 0f;
-                Say("Opponent paused the game");
+                Say((many ? "Another player" : "Opponent") + " paused the game");
             }
             else
             {
-                if (!_ownPaused) { Time.timeScale = 1f; Time.fixedDeltaTime = 0.02f; }
-                Say("Opponent resumed the game");
+                if (!_ownPaused && !_oppPaused) { Time.timeScale = 1f; Time.fixedDeltaTime = 0.02f; }
+                Say((many ? "Another player" : "Opponent") + " resumed the game");
             }
             return true;
         }

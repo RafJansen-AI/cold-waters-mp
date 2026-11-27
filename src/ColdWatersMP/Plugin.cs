@@ -303,7 +303,7 @@ namespace ColdWatersMP
                 GUILayout.EndHorizontal();
             }
             if (_session.PlayerCount > 2)
-                GUILayout.Label("Team battles are being built: with more than 2 players connected, missions start without multiplayer for now.");
+                GUILayout.Label("Battle (test): every other sub is a contact, teammates too (nothing is shared). Two teams fight it out; with everyone on one team, it is every sub for itself.");
             GUILayout.Space(6);
         }
 

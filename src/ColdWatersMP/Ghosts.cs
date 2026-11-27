@@ -23,6 +23,7 @@ namespace ColdWatersMP
         class Ghost
         {
             public Vessel V;
+            public Opponent Owner;                 // whose decoys this slot shows (it has their class)
             public int TorpId = -1; public Torpedo T;
             public float Start, Until, FadeOutStart = -1f;
             public float Noise;                    // the launcher's noise at launch
@@ -73,19 +74,23 @@ namespace ColdWatersMP
         {
             Reset();
             ReportHidden.Clear();
-            Duel.LastPuppetNoise = 100f; // the first sonar check sets the real value
             Vessel[] ev = GameDataManager.enemyvesselsonlevel;
             if (ev == null) return;
             _park = new Vector3(0f, 0f, ParkNm * Duel.UnitsPerNm);
-            for (int i = 1; i < ev.Length && _ghosts.Count < Slots; i++) // only the first Slots extra enemies are ghosts
+            foreach (Opponent o in Duel.InGame)
             {
-                Vessel v = ev[i];
-                if (v == null) continue;
-                Duel.AiOff(v);
-                foreach (Collider col in v.GetComponentsInChildren<Collider>(true)) col.enabled = false; // no hits, no collisions
-                Park(v);
-                _ghosts.Add(new Ghost { V = v });
-                ReportHidden.Add(v);
+                o.LastNoise = 100f; // the first sonar check sets the real value
+                if (o.Base < 0) continue;
+                for (int i = o.Base + 1; i <= o.Base + Duel.SlotsPer && i < ev.Length; i++) // their ghost slots follow their puppet
+                {
+                    Vessel v = ev[i];
+                    if (v == null) continue;
+                    Duel.AiOff(v);
+                    foreach (Collider col in v.GetComponentsInChildren<Collider>(true)) col.enabled = false; // no hits, no collisions
+                    Park(v);
+                    _ghosts.Add(new Ghost { V = v, Owner = o });
+                    ReportHidden.Add(v);
+                }
             }
             Duel.Log("~Ghosts: " + _ghosts.Count + " ghost sub(s) ready for decoys");
             try { SetupButton(); } catch (System.Exception ex) { Duel.Log("~Code book DECOY button failed: " + ex.Message + " (Ctrl+F5 still works)"); }
@@ -135,22 +140,24 @@ namespace ColdWatersMP
 
         public static void BeforeSonarCheck(SensorManager sm)
         {
-            if (!Duel.InDuel || Duel.Puppet == null || sm == null || sm.signalLastPassiveReading == null || _ghosts.Count == 0) return;
+            if (!Duel.InDuel || sm == null || sm.signalLastPassiveReading == null || _ghosts.Count == 0) return;
             Vessel own = GameDataManager.playervesselsonlevel != null && GameDataManager.playervesselsonlevel.Length > 0 ? GameDataManager.playervesselsonlevel[0] : null;
-            if (own == null || Duel.Puppet.acoustics == null) return;
+            if (own == null) return;
             float[] sig = sm.signalLastPassiveReading;
-            int p = Duel.Puppet.vesselListIndex;
-            if (p < 0 || p >= sig.Length || sig[p] < -100f) return; // launcher in our baffles or unheard: no reference
             if (_spreadF == null) { _spreadF = AccessTools.Field(typeof(SensorManager), "spreadingFactor"); _attenF = AccessTools.Field(typeof(SensorManager), "attenuationFactor"); }
             float spread = _spreadF != null ? (float)_spreadF.GetValue(sm) : 0f, atten = _attenF != null ? (float)_attenF.GetValue(sm) : 0f;
-            float rP = Mathf.Max(1f, Vector3.Distance(own.transform.position, Duel.Puppet.transform.position) * GameDataManager.yardsScale * 0.9144f);
             foreach (Ghost g in _ghosts)
             {
                 if (g.TorpId < 0 || g.V == null || g.V.acoustics == null) continue;
+                Vessel launcher = g.Owner != null ? g.Owner.Puppet : null;
+                if (launcher == null || launcher.acoustics == null) continue;
+                int p = launcher.vesselListIndex;
+                if (p < 0 || p >= sig.Length || sig[p] < -100f) continue; // launcher in our baffles or unheard: no reference
+                float rP = Mathf.Max(1f, Vector3.Distance(own.transform.position, launcher.transform.position) * GameDataManager.yardsScale * 0.9144f);
                 int gi = g.V.vesselListIndex;
                 if (gi < 0 || gi >= sig.Length) continue;
                 float rG = Mathf.Max(1f, Vector3.Distance(own.transform.position, g.V.transform.position) * GameDataManager.yardsScale * 0.9144f);
-                float est = sig[p] + (g.V.acoustics.currentNoise - Duel.Puppet.acoustics.currentNoise)
+                float est = sig[p] + (g.V.acoustics.currentNoise - launcher.acoustics.currentNoise)
                           - spread * (Mathf.Log10(rG) - Mathf.Log10(rP)) - atten * (rG - rP);
                 if (est > sig[gi]) sig[gi] = est;
             }
@@ -187,7 +194,7 @@ namespace ColdWatersMP
         public static void OpponentSlots(List<int> into)
         {
             into.Clear();
-            if (Duel.Puppet != null) into.Add(Duel.Puppet.vesselListIndex);
+            foreach (Opponent o in Duel.InGame) if (o.Puppet != null) into.Add(o.Puppet.vesselListIndex);
             foreach (Ghost g in _ghosts) if (g.V != null) into.Add(g.V.vesselListIndex);
         }
 
@@ -220,7 +227,7 @@ namespace ColdWatersMP
         public static bool IsDecoy(DatabaseWeaponData wd) { return wd != null && (wd.weaponType == "DECOY" || wd.isDecoy); }
 
         /// <summary>The opponent launched a decoy; t is its hidden copy here.</summary>
-        public static void OnDecoySpawned(int torpId, Torpedo t, DatabaseWeaponData wd)
+        public static void OnDecoySpawned(Opponent owner, int torpId, Torpedo t, DatabaseWeaponData wd)
         {
             // The copy itself stays a torpedo object (seekers here may chase it) but is silent and not drawn.
             foreach (AudioSource a in t.GetComponentsInChildren<AudioSource>(true)) a.enabled = false;
@@ -230,7 +237,7 @@ namespace ColdWatersMP
             // Prefer a free ghost without a contact track: reusing a named one has to drop its (faded) track now.
             Ghost g = null;
             foreach (Ghost x in _ghosts)
-                if (x.TorpId < 0 && x.V != null && (g == null || (Tracks.HasName(g.V.vesselListIndex) && !Tracks.HasName(x.V.vesselListIndex)))) g = x;
+                if (x.Owner == owner && x.TorpId < 0 && x.V != null && (g == null || (Tracks.HasName(g.V.vesselListIndex) && !Tracks.HasName(x.V.vesselListIndex)))) g = x;
             if (g == null) { Duel.Log("~Ghosts: no free ghost for decoy #" + torpId); return; }
             Tracks.Drop(g.V.vesselListIndex, "ghost reused for decoy #" + torpId);
             float ydsPerSec = Mathf.Max(1f, wd.runSpeed) * 2025.37f / 3600f;
@@ -239,11 +246,11 @@ namespace ColdWatersMP
             // Sound like the launcher would at the decoy's speed: the hull's noise without the launcher's own speed
             // (and cavitation), plus the game's per-knot noise at the decoy's run speed.
             float perKnot = UIFunctions.globaluifunctions.playerfunctions.sensormanager.targetNoisePerKnot;
-            g.Noise = Duel.LastPuppetNoise - Duel.LastPuppetSpeedNoise + Mathf.Max(0f, wd.runSpeed) * perKnot;
-            g.Knots = wd.runSpeed; g.Wd = wd; g.Towed = Duel.OppTowed;
+            g.Noise = owner.LastNoise - owner.LastSpeedNoise + Mathf.Max(0f, wd.runSpeed) * perKnot;
+            g.Knots = wd.runSpeed; g.Wd = wd; g.Towed = owner.Towed;
             g.LastPos = t.transform.position; g.Vel = Vector3.zero;
             Follow(g, t.transform.position, t.transform.eulerAngles.y);
-            Duel.Log("~Ghosts: ghost " + g.V.vesselListIndex + " follows decoy #" + torpId + " (" + wd.weaponName + ", run " + (run / 60f).ToString("F0") + " min, noise " + g.Noise.ToString("F1") + ", launcher " + Duel.LastPuppetNoise.ToString("F1") + ")");
+            Duel.Log("~Ghosts: ghost " + g.V.vesselListIndex + " follows decoy #" + (torpId & 0xFFFFF) + (Duel.Opps.Count > 1 ? " of " + owner.Label : "") + " (" + wd.weaponName + ", run " + (run / 60f).ToString("F0") + " min, noise " + g.Noise.ToString("F1") + ", launcher " + owner.LastNoise.ToString("F1") + ")");
         }
 
         /// <summary>The decoy copy ended here (end message or removed): fade the ghost out along its last course.</summary>
@@ -535,10 +542,10 @@ namespace ColdWatersMP
         }
 
         /// <summary>Our torpedo hit the opponent: a "decoy?" note on the real sub is plainly wrong, take it off.</summary>
-        public static void OnOpponentHit()
+        public static void OnOpponentHit(Opponent victim)
         {
-            if (!Duel.InDuel || Duel.Puppet == null) return;
-            int i = Duel.Puppet.vesselListIndex;
+            if (!Duel.InDuel || victim == null || victim.Puppet == null) return;
+            int i = victim.Puppet.vesselListIndex;
             if (!_marked.Remove(i)) return;
             Unmark(i);
             PlayerFunctions pf = UIFunctions.globaluifunctions.playerfunctions;

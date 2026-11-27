@@ -1,6 +1,7 @@
-// Cold Waters MP - step 3: 1v1 duel setup and opponent puppet. C# 5 / .NET 3.5.
-// Model: each machine keeps its own sub as the normal player vessel. The opponent's sub is
-// enemy 0 with its AI disabled, driven by network state ("puppet").
+// Cold Waters MP - duel setup and opponent puppets. C# 5 / .NET 3.5.
+// Model: each machine keeps its own sub as the normal player vessel. Every other player's sub is an enemy-list
+// vessel with its AI disabled, driven by network state ("puppet"). A 1v1 duel has one; a battle with more
+// players has one per other player, teammates included (hardcore: nothing is shared, everyone is a contact).
 using System.Collections.Generic;
 using System.IO;
 using HarmonyLib;
@@ -8,6 +9,24 @@ using UnityEngine;
 
 namespace ColdWatersMP
 {
+    /// <summary>Another player, as this game knows them: sub choice, mission flags, puppet and its latest states.</summary>
+    public class Opponent
+    {
+        public int Id; public string Name = ""; public int Team;
+        public int Class = -1; public string ClassName = ""; public float RpgSelfNoiseBonus; public int MissionId = -1;
+        public bool InMission, InOldMission, AtStations;
+        public bool RunningSilent, ActiveSonar;
+        public Vessel Puppet;            // null when they are not in our current mission
+        public int Base = -1;            // enemy-list index of their puppet; their ghost slots follow it
+        public float LastNoise = 100f, LastSpeedNoise; // their hull noise at our last sonar check (decoys copy it)
+        public bool Sunk;
+        internal Duel.SubState S0, S1; internal float S1Local; internal int StateCount; internal bool HaveState;
+        internal float PingTimer;
+        internal bool HavePlace; internal Vector3 PlacePos; internal float PlaceHeading;
+        public string Label { get { return Name.Length > 0 ? Name : "player " + Id; } }
+        public byte Towed { get { return HaveState ? S1.Towed : (byte)0; } }
+    }
+
     public static class Duel
     {
         // Game message sub-types
@@ -22,109 +41,187 @@ namespace ColdWatersMP
         static readonly System.Random _placeRng = new System.Random();
         static float Rnd(float a, float b) { return a + (float)_placeRng.NextDouble() * (b - a); }
 
-        // Opponent info
-        public static int OppClass = -1;
-        public static string OppClassName = "";
-        public static bool OppRunningSilent;
-        public static bool OppActiveSonar;
-        static float _pingTimer;
+        // ---------- the other players ----------
+        static readonly SortedDictionary<int, Opponent> _opps = new SortedDictionary<int, Opponent>();
+        /// <summary>Every other player in the session, by player number.</summary>
+        public static readonly List<Opponent> Opps = new List<Opponent>();
+        /// <summary>The other players in our current mission (they have a puppet here), by player number.</summary>
+        public static readonly List<Opponent> InGame = new List<Opponent>();
+        /// <summary>Enemy-list index where neutral traffic starts (after every opponent's puppet and ghost slots).</summary>
+        public static int NeutralStart = 1 + Ghosts.Slots;
+        /// <summary>Decoy ghost slots per opponent in this mission.</summary>
+        public static int SlotsPer = Ghosts.Slots;
+
+        static Opponent Opp(int id)
+        {
+            Opponent o;
+            if (_opps.TryGetValue(id, out o)) return o;
+            o = new Opponent { Id = id };
+            _opps[id] = o;
+            RebuildOpps();
+            return o;
+        }
+
+        static void RebuildOpps() { Opps.Clear(); Opps.AddRange(_opps.Values); }
+
+        /// <summary>The opponent whose puppet this is, or null.</summary>
+        public static Opponent ByPuppet(Vessel v)
+        {
+            if (!InDuel || v == null) return null;
+            foreach (Opponent o in InGame) if (o.Puppet == v) return o;
+            return null;
+        }
+
+        /// <summary>The sender of the game message being handled.</summary>
+        static Opponent Sender { get { return Opp(Session.LastSender); } }
+
+        /// <summary>The opponent with this player number in our current mission, or null.</summary>
+        public static Opponent InGameById(int id)
+        {
+            foreach (Opponent o in InGame) if (o.Id == id) return o;
+            return null;
+        }
+
+        /// <summary>The session's roster changed: add newcomers, drop who left, take over names and teams.</summary>
+        static void SyncRoster()
+        {
+            HashSet<int> ids = new HashSet<int>();
+            foreach (PlayerInfo p in Session.Players.ToArray())
+            {
+                if (p.Id == Session.MyId) { MyTeam = p.Team; continue; }
+                ids.Add(p.Id);
+                Opponent o = Opp(p.Id);
+                o.Name = p.Name ?? ""; o.Team = p.Team;
+            }
+            List<int> gone = new List<int>();
+            foreach (int id in _opps.Keys) if (!ids.Contains(id)) gone.Add(id);
+            foreach (int id in gone)
+            {
+                Opponent o = _opps[id];
+                _opps.Remove(id);
+                if (o.Puppet != null && InDuel)
+                {
+                    Log(o.Label + " left the session during the mission");
+                    o.InMission = false;
+                    CheckEnd();
+                }
+            }
+            if (gone.Count > 0) RebuildOpps();
+        }
+
+        public static int MyTeam;
+
+        /// <summary>One opponent's name for messages: "the opponent" in a 1v1, else the player's name.</summary>
+        static string Who(Opponent o) { return Opps.Count <= 1 ? "the opponent" : o.Label; }
+
         static float _diagTimer;
 
-        /// <summary>Every 10 s: what our sonar makes of the opponent (to chase one-sided detection).</summary>
+        /// <summary>Every 10 s: what our sonar makes of each opponent (to chase one-sided detection).</summary>
         static void LogSonarDiagnostics()
         {
             try
             {
                 SensorManager sm = UIFunctions.globaluifunctions.playerfunctions.sensormanager;
-                int i = Puppet.vesselListIndex;
                 Vessel own = GameDataManager.playervesselsonlevel[0];
-                float rangeKyd = Vector3.Distance(own.transform.position, Puppet.transform.position) * GameDataManager.yardsScale / 1000f;
-                Log("~SONAR range " + rangeKyd.ToString("F1") + " kyd | we hear them " + sm.signalLastPassiveReading[i].ToString("F1")
-                    + " (threshold " + sm.detectionThresholds.x.ToString("F1") + "), detected " + sm.detectedByPlayer[i]
-                    + " | their silent " + OppRunningSilent + ", active " + OppActiveSonar + ", speed " + (Puppet.vesselmovement.shipSpeed.z * 10f).ToString("F0") + " kt"
-                    + " | our active " + own.acoustics.usingActiveSonar
-                    + " | ENV ambient " + sm.currentOceanAmbientNoise.ToString("F1") + ", layer " + sm.layerDepthInFeet.ToString("F0") + " ft str " + sm.layerStrength.ToString("F2")
-                    + ", duct " + sm.surfaceDuctStrength.ToString("F2") + ", sea " + sm.seaState);
+                foreach (Opponent o in InGame)
+                {
+                    Vessel p = o.Puppet;
+                    if (p == null) continue;
+                    int i = p.vesselListIndex;
+                    float rangeKyd = Vector3.Distance(own.transform.position, p.transform.position) * GameDataManager.yardsScale / 1000f;
+                    Log("~SONAR " + (InGame.Count > 1 ? o.Label + " " : "") + "range " + rangeKyd.ToString("F1") + " kyd | we hear them " + sm.signalLastPassiveReading[i].ToString("F1")
+                        + " (threshold " + sm.detectionThresholds.x.ToString("F1") + "), detected " + sm.detectedByPlayer[i]
+                        + " | their silent " + o.RunningSilent + ", active " + o.ActiveSonar + ", speed " + (p.vesselmovement.shipSpeed.z * 10f).ToString("F0") + " kt"
+                        + " | our active " + own.acoustics.usingActiveSonar
+                        + " | ENV ambient " + sm.currentOceanAmbientNoise.ToString("F1") + ", layer " + sm.layerDepthInFeet.ToString("F0") + " ft str " + sm.layerStrength.ToString("F2")
+                        + ", duct " + sm.surfaceDuctStrength.ToString("F2") + ", sea " + sm.seaState);
+                }
                 Log("~TRACKS " + Tracks.Describe());
             }
             catch (System.Exception ex) { Log("SONAR diagnostics failed: " + ex.Message); }
         }
-        public static float OppRpgSelfNoiseBonus;
-        public static bool OppInMission;
 
         // Local state
         public static bool InDuel;          // our mission was loaded as a duel
         public static bool LocalInMission;
         public static bool PlacementApplied; // our duel placement was applied in this mission
-        public static Vessel Puppet;
-        static bool _haveState, _havePlacement;
+        /// <summary>The first opponent's puppet (a 1v1 has only one).</summary>
+        public static Vessel Puppet { get { return InGame.Count > 0 ? InGame[0].Puppet : null; } }
+        static bool _havePlacement;
         static int _placeSeq = -1; // client: the host match this placement belongs to
-        static Vector3 _placeOwnPos, _placeOppPos;
-        static float _placeOwnHeading, _placeOppHeading;
+        static Vector3 _placeOwnPos;
+        static float _placeOwnHeading;
         static float _sendTimer;
         static bool _choiceMade;            // set once the player has accepted a sub on vessel select
-        // Start gate: a mission load is held until the opponent's sub choice has arrived.
+        // Start gate: a mission load is held until every opponent's sub choice has arrived.
         static LevelLoadManager _heldLoad;
         static bool _releasingLoad;
-        // Battlestations gate: both players leave the (paused) briefing together.
-        static bool _ownAtStations, _oppAtStations, _releasingStations;
+        // Battlestations gate: all players leave the (paused) briefing together.
+        static bool _ownAtStations, _releasingStations;
         static MissionManager _heldStations;
-        public static int OppMissionId = -1;
-        // We left while the opponent was still in that mission: don't start a new one until they leave it too.
-        // (Being "in the mission" alone is not enough: they may already be in the NEW one.)
-        static bool _oppInOldMission;
         public static bool WaitingForOpponentChoice { get { return _heldLoad != null; } }
 
-        // Latest two opponent states, for extrapolation
-        struct SubState { public float T; public Vector3 Pos; public Vector3 Euler; public float SpeedZ; public int Telegraph; public Vector2 Rudder; public Vector2 Ballast; public bool Cav; public bool Silent; public bool Submerged; public bool Active; public byte Towed; }
-        static SubState _s0, _s1;
-        static float _s1LocalTime;
-        static int _stateCount;
+        static bool AllChosen { get { foreach (Opponent o in Opps) if (o.Class < 0) return false; return Opps.Count > 0; } }
+        static bool AnyInOldMission { get { foreach (Opponent o in Opps) if (o.InOldMission) return true; return false; } }
+        /// <summary>Every opponent of this mission who is still in the session is at battlestations.</summary>
+        static bool AllAtStations { get { foreach (Opponent o in InGame) if (!o.AtStations && _opps.ContainsKey(o.Id)) return false; return true; } }
+
+        // Latest two states of a puppet, for extrapolation
+        internal struct SubState { public float T; public Vector3 Pos; public Vector3 Euler; public float SpeedZ; public int Telegraph; public Vector2 Rudder; public Vector2 Ballast; public bool Cav; public bool Silent; public bool Submerged; public bool Active; public byte Towed; }
 
         public static string StatusLine
         {
             get
             {
-                if (Session == null || Session.State != SessionState.Ready) return "";
-                string opp = OppClass >= 0 ? OppClassName : "not chosen yet";
-                string s = "Opponent sub: " + opp;
-                if (_heldStations != null) s += " | WAITING for opponent to reach battlestations (Ctrl+F8: start anyway)";
-                if (WaitingForOpponentChoice) s += OppClass < 0 ? " | WAITING for opponent's sub choice (Ctrl+F8: start anyway)" : " | WAITING for the host to start (Ctrl+F8: start anyway)";
- if (Result.Length > 0) s += " | " + Result;
-                if (InDuel) s += " | duel " + (OppInMission ? "running" : "waiting for opponent to load") + (Puppet != null ? " | states " + _stateCount : "");
+                if (Session == null || Session.State != SessionState.Ready || Opps.Count == 0) return "";
+                string s;
+                if (Opps.Count == 1) s = "Opponent sub: " + (Opps[0].Class >= 0 ? Opps[0].ClassName : "not chosen yet");
+                else
+                {
+                    int chosen = 0; foreach (Opponent o in Opps) if (o.Class >= 0) chosen++;
+                    s = chosen + " of " + Opps.Count + " other players chose a sub";
+                }
+                string them = Opps.Count == 1 ? "opponent" : "other players";
+                if (_heldStations != null) s += " | WAITING for the " + them + " to reach battlestations (Ctrl+F8: start anyway)";
+                if (WaitingForOpponentChoice) s += !AllChosen ? " | WAITING for the " + (Opps.Count == 1 ? "opponent's" : "other players'") + " sub choice (Ctrl+F8: start anyway)" : " | WAITING for the host to start (Ctrl+F8: start anyway)";
+                if (Result.Length > 0) s += " | " + Result;
+                if (InDuel)
+                {
+                    int loaded = 0, states = 0; foreach (Opponent o in InGame) { if (o.InMission) loaded++; states += o.StateCount; }
+                    s += " | " + (Opps.Count == 1 ? "duel " : "battle ") + (loaded == InGame.Count ? "running" : "waiting for " + them + " to load") + (InGame.Count > 0 ? " | states " + states : "");
+                }
                 return s;
             }
         }
-
-        static int _lastPlayerCount;
 
         public static void Init(Session session, System.Action<string> log, float rangeNm)
         {
             Session = session; Log = log; RangeNm = rangeNm;
             session.GameMessage += OnGameMessage;
-            // Back to two players after a third left: the duel code starts over with the remaining opponent.
             session.RosterChanged += delegate
             {
-                int n = Session.PlayerCount;
-                if (n == 2 && _lastPlayerCount > 2 && Session.State == SessionState.Ready)
+                int before = _opps.Count;
+                SyncRoster();
+                // Someone new: they need our sub choice, a fresh ocean, and (held host load) our map.
+                if (Session.State == SessionState.Ready && _opps.Count != before)
                 {
-                    OppClass = -1; OppClassName = "";
                     if (_choiceMade) SendSubChoice();
                     EnvSync.HostNewSeed();
+                    if (Session.IsHost && _heldLoad != null) Match.HostResend();
                 }
-                _lastPlayerCount = n;
             };
             session.ReadyChanged += delegate (bool ready)
             {
                 if (ready)
                 {
+                    SyncRoster();
                     if (_choiceMade) SendSubChoice(); // re-send a real choice to a newly joined peer
                     EnvSync.HostNewSeed();
                     if (Session.IsHost && _heldLoad != null) Match.HostResend(); // the client needs our map to start
                 }
                 else
                 {
-                    OppClass = -1; OppClassName = ""; OppInMission = false; _oppInOldMission = false;
+                    _opps.Clear(); RebuildOpps();
                     TimeSync.Reset();             // never stay paused or compressed for a peer that is gone
                     Match.OnHostLeftMission();    // client: the host's map is stale after a reconnect
                     if (!InDuel) Match.RestoreLocalDifficulty(); // nothing was played: give back our own settings
@@ -133,8 +230,8 @@ namespace ColdWatersMP
             };
         }
 
-        /// <summary>A duel needs exactly two players. With more (team battles, being built), missions run without multiplayer.</summary>
-        static bool Active { get { return Session != null && Session.State == SessionState.Ready && Session.PlayerCount == 2; } }
+        /// <summary>Multiplayer missions need a ready session with at least one other player.</summary>
+        static bool Active { get { return Session != null && Session.State == SessionState.Ready && Session.PlayerCount >= 2; } }
 
         // ---------- sub choice ----------
 
@@ -168,7 +265,7 @@ namespace ColdWatersMP
         /// <summary>Client: the host's map and conditions arrived; start a held load if the sub choice is in too.</summary>
         public static void OnHostMatchArrived()
         {
-            if (_heldLoad != null && OppClass >= 0) ReleaseHeldLoad("host started");
+            if (_heldLoad != null && AllChosen && !AnyInOldMission) ReleaseHeldLoad("host started");
         }
 
         // ---------- level load ----------
@@ -185,24 +282,27 @@ namespace ColdWatersMP
                 Log("WARNING: previous duel was never closed; cleaning up before the new mission");
                 EnvSync.HostNewSeed();
             }
-            InDuel = false; Puppet = null; LocalInMission = false; PlacementApplied = false; _haveState = false; _stateCount = 0;
-            _ownAtStations = false; _heldStations = null; // _oppAtStations may already be true: they can be quicker
+            InDuel = false; LocalInMission = false; PlacementApplied = false;
+            foreach (Opponent o in InGame) o.Puppet = null;
+            InGame.Clear();
+            _ownAtStations = false; _heldStations = null; // an opponent's AtStations may already be true: they can be quicker
             Weapons.Reset();
             if (!Active || !GameDataManager.missionMode) return true;
+            SyncRoster();
             if (!Session.IsHost && !_releasingLoad) Match.AppliedSeq = -1; // set again by ClientApply below
-            if (!_choiceMade) OnSubAccepted(); // fallback: make sure the opponent learns our sub
-            if (Session.IsHost && !_releasingLoad) Match.HostPrepare(llm.levelloaddata); // our map and conditions, for both of us (once)
-            if (_oppInOldMission && !_releasingLoad)
+            if (!_choiceMade) OnSubAccepted(); // fallback: make sure the others learn our sub
+            if (Session.IsHost && !_releasingLoad) Match.HostPrepare(llm.levelloaddata); // our map and conditions, for all of us (once)
+            string them = Opps.Count == 1 ? "the opponent" : "the other players";
+            if (AnyInOldMission && !_releasingLoad)
             {
                 _heldLoad = llm;
-                Log("Waiting for the opponent to leave the previous mission (Ctrl+F8: start anyway)");
+                Log("Waiting for " + them + " to leave the previous mission (Ctrl+F8: start anyway)");
                 return false;
             }
-            int oppCls = OppClass;
-            if (oppCls < 0 && !_releasingLoad)
+            if (!AllChosen && !_releasingLoad)
             {
                 _heldLoad = llm;
-                Log("Waiting for the opponent to choose a sub; the mission starts when it arrives (Ctrl+F8: start anyway)");
+                Log("Waiting for " + them + " to choose a sub; the mission starts when " + (Opps.Count == 1 ? "it arrives" : "all are in") + " (Ctrl+F8: start anyway)");
                 return false;
             }
             if (!Session.IsHost && !Match.HaveHostMatch && !_releasingLoad)
@@ -217,31 +317,50 @@ namespace ColdWatersMP
                 if (Match.HaveHostMatch) Match.ClientApply(d);
                 else Log("WARNING: no map from the host; using your own mission (map and weather may differ)");
             }
-            if (oppCls < 0)
-            {
-                oppCls = UIFunctions.globaluifunctions.playerfunctions.playerVesselClass;
-                Log("WARNING: opponent has not chosen a sub yet; using your own class for the puppet");
-            }
+            int ownCls = UIFunctions.globaluifunctions.playerfunctions.playerVesselClass;
+            DatabaseShipData[] db = UIFunctions.globaluifunctions.database.databaseshipdata;
             d.noOtherVessels = true;
             d.numberOfHelicopters = 0;
             d.numberOfAircraft = 0;
-            // Enemy 0 is the opponent; enemies 1.. are ghost subs for their decoys (same class, parked until used).
-            int n = 1 + Ghosts.Slots;
-            // The game caps the enemy list at GameDataManager.maxShips (15). Team battles need more: raise it when
-            // the duel plus room for neutral traffic (up to 8) would not fit. Its sonar and map arrays follow the
-            // actual list length. A 1v1 duel (6 + 8) stays under 15.
-            int need = n + 8;
+            // Per opponent (by player number): their puppet, then ghost subs for their decoys (same class, parked
+            // until used). More opponents get fewer ghost slots each, so a big battle stays a sane vessel count.
+            InGame.Clear(); InGame.AddRange(Opps);
+            int r = InGame.Count;
+            SlotsPer = r <= 1 ? Ghosts.Slots : System.Math.Max(2, Ghosts.Slots - (r - 1));
+            int n = r * (1 + SlotsPer);
+            NeutralStart = n;
+            // The game caps the enemy list at GameDataManager.maxShips (15). Battles need more: raise it when
+            // the mission plus room for neutral traffic would not fit. Its sonar and map arrays follow the
+            // actual list length. A 1v1 duel (6 + 9) stays at 15.
+            int need = n + Ambient.MaxNeutrals;
             if (need > GameDataManager.maxShips) { Log("~Ship cap raised from " + GameDataManager.maxShips + " to " + need); GameDataManager.maxShips = need; }
-            int sid = UIFunctions.globaluifunctions.database.databaseshipdata[oppCls].shipID;
             d.enemyShipBehaviour = new string[n];
             d.kmShipClasses = new int[n];
-            for (int i = 0; i < n; i++) { d.enemyShipBehaviour[i] = "DEFENSIVE"; d.kmShipClasses[i] = sid; }
+            string names = "";
+            List<int> classes = new List<int>();
+            for (int k = 0; k < r; k++)
+            {
+                Opponent o = InGame[k];
+                o.Base = k * (1 + SlotsPer);
+                o.Sunk = false; o.HaveState = false; o.StateCount = 0; o.HavePlace = false;
+                int cls = o.Class;
+                if (cls < 0 || cls >= db.Length)
+                {
+                    cls = ownCls;
+                    Log("WARNING: " + Who(o) + " has not chosen a sub yet; using your own class for their puppet");
+                }
+                classes.Add(cls);
+                int sid = db[cls].shipID;
+                for (int i = o.Base; i < o.Base + 1 + SlotsPer; i++) { d.enemyShipBehaviour[i] = "DEFENSIVE"; d.kmShipClasses[i] = sid; }
+                names += (names.Length > 0 ? ", " : "") + ClassName(cls) + (r > 1 ? " (" + o.Label + ")" : "");
+            }
             d.enemyUnitMissionCritical = new bool[n];
             d.kmShipInstances = new int[n];
             d.kmSlots = new int[n];
             InDuel = true;
-            Log("Duel: mission rewritten to 1 enemy (" + ClassName(oppCls) + ") + " + Ghosts.Slots + " decoy ghosts, no aircraft; neutral traffic: " + Ambient.Count);
-            SetIdBook(oppCls);
+            if (r == 1) Log("Duel: mission rewritten to 1 enemy (" + names + ") + " + SlotsPer + " decoy ghosts, no aircraft; neutral traffic: " + Ambient.Count);
+            else Log("Battle: mission rewritten to " + r + " other players (" + names + "), " + SlotsPer + " decoy ghosts each, no aircraft; neutral traffic: " + Ambient.Count);
+            SetIdBook(classes);
             return true;
         }
 
@@ -277,54 +396,125 @@ namespace ColdWatersMP
             {
                 Log("Duel: no enemy vessel spawned, duel disabled"); InDuel = false; return;
             }
-            Puppet = GameDataManager.enemyvesselsonlevel[0];
-            MakePuppet(Puppet);
+            Vessel[] ev = GameDataManager.enemyvesselsonlevel;
+            foreach (Opponent o in InGame)
+            {
+                o.Puppet = o.Base >= 0 && o.Base < ev.Length ? ev[o.Base] : null;
+                if (o.Puppet == null) { Log("WARNING: no puppet vessel for " + Who(o)); continue; }
+                MakePuppet(o);
+            }
             try { Ghosts.Setup(); } catch (System.Exception ex) { Log("Ghost setup failed: " + ex.Message); }
             try { Ambient.Setup(); } catch (System.Exception ex) { Log("Neutral traffic setup failed: " + ex.Message); }
             LocalInMission = true; PlacementApplied = false;
-            _ownSunk = false; _oppSunk = false; Result = ""; _startTime = Time.time;
+            { HashSet<int> teams = new HashSet<int>(); teams.Add(MyTeam); foreach (Opponent o in InGame) teams.Add(o.Team); _teamsPlay = teams.Count >= 2; }
+            if (InGame.Count > 1) Log("Battle: " + (_teamsPlay ? "two teams" : "every player for themselves") + ", " + (InGame.Count + 1) + " subs");
+            _ownSunk = false; _resultFinal = false; Result = ""; _startTime = Time.time;
 
             Vessel own = GameDataManager.playervesselsonlevel[0];
             if (Session.IsHost)
             {
-                // Host stays where the mission put it (new random heading); the client goes somewhere in the range band.
-                // Geometry: each sub sees the other within 60 deg of its bow (never in the baffles), so the
-                // aspect varies from head-on to about 120 deg between the two lines of sight and courses.
-                Vector3 hp = own.transform.position;
-                float hh = Rnd(0f, 360f);
-                float range = Rnd(Mathf.Min(RangeMinNm, RangeMaxNm), Mathf.Max(RangeMinNm, RangeMaxNm));
-                // Try bearings off the host's bow for a spot in deep enough water; fall back to anywhere around.
-                float bearing = 0f, bestDepth = -1f, bestBearing = hh;
+                int seq = Match.SentSeq;
+                List<int> ids; List<Vector3> pos; List<float> hdg;
+                HostPlace(own.transform.position, out ids, out pos, out hdg);
+                Session.SendGame(G_PLACEMENT, w =>
+                {
+                    w.Write(seq); w.Write(ids.Count);
+                    for (int k = 0; k < ids.Count; k++) { w.Write(ids[k]); WriteV3(w, pos[k]); w.Write(hdg[k]); }
+                }, true);
+                TakePlacement(ids, pos, hdg, seq);
+                Log((InGame.Count == 1 ? "Duel" : "Battle") + ": start positions set (random range in the host's band)");
+            }
+            ApplyPlacement();
+            Session.SendGame(G_INMISSION, w => w.Write(true), true);
+            // PoC: no automatic start hold (pausing via timeScale during the load coroutine is unsafe).
+            // Until an opponent's first state arrives, their puppet simply waits at its placement.
+        }
+
+        /// <summary>Who starts together: the lobby teams when there are two, else everyone on their own (free for all).</summary>
+        static int GroupOf(int id, int team) { return _teamsPlay ? team : id; }
+        static bool _teamsPlay;
+
+        /// <summary>Host: start positions for every player in the mission. The host's group stays where the mission put the
+        /// host (new random heading); every other group goes somewhere in the range band off the host's bow. Geometry
+        /// (1v1): each sub sees the other within 60 deg of its bow (never in the baffles), so the aspect varies from
+        /// head-on to about 120 deg between the two lines of sight and courses. More groups share the bow sector, spread
+        /// out evenly (three in a free for all make a rough triangle). Teammates start 1 nm apart, side by side.</summary>
+        static void HostPlace(Vector3 hp, out List<int> ids, out List<Vector3> pos, out List<float> hdg)
+        {
+            ids = new List<int>(); pos = new List<Vector3>(); hdg = new List<float>();
+            // the players and their groups, host first
+            List<int> pid = new List<int>(); List<int> grp = new List<int>();
+            pid.Add(Session.MyId); grp.Add(-1);
+            grp[0] = GroupOf(Session.MyId, MyTeam);
+            foreach (Opponent o in InGame) { pid.Add(o.Id); grp.Add(GroupOf(o.Id, o.Team)); }
+            List<int> order = new List<int>(); order.Add(grp[0]);
+            foreach (int g in grp) if (!order.Contains(g)) order.Add(g);
+            int others = order.Count - 1;
+
+            float hh = Rnd(0f, 360f);
+            float range = Rnd(Mathf.Min(RangeMinNm, RangeMaxNm), Mathf.Max(RangeMinNm, RangeMaxNm));
+            Vector3[] centre = new Vector3[order.Count];
+            float[] bearingOf = new float[order.Count];
+            centre[0] = hp;
+            for (int gi = 1; gi < order.Count; gi++)
+            {
+                // this group's share of the bow sector (-60..60): the middle of its slice, jittered inside it
+                float lo = -60f + 120f * (gi - 1) / others, hi = -60f + 120f * gi / others;
+                float bearing = 0f, bestDepth = -1f, bestBearing = hh + (lo + hi) / 2f;
                 for (int i = 0; i < 24; i++)
                 {
-                    bearing = i < 16 ? hh + Rnd(-60f, 60f) : Rnd(0f, 360f);
+                    bearing = i < 16 ? hh + Rnd(lo, hi) : Rnd(0f, 360f);
                     Vector3 d0 = Quaternion.Euler(0f, bearing, 0f) * Vector3.forward;
                     float sd = SeabedFeet(hp + d0 * (range * UnitsPerNm));
                     if (sd > bestDepth) { bestDepth = sd; bestBearing = bearing; }
                     if (sd >= 600f) break;
                 }
                 bearing = bestBearing;
-                float off = Mathf.Repeat(bearing - hh + 180f, 360f) - 180f;
-                if (off > 60f || off < -60f) hh = bearing + Rnd(-60f, 60f); // fallback bearing: turn the host so it still faces the client
-                hh = Mathf.Repeat(hh, 360f);
+                if (others == 1)
+                {
+                    float off = Mathf.Repeat(bearing - hh + 180f, 360f) - 180f;
+                    if (off > 60f || off < -60f) hh = bearing + Rnd(-60f, 60f); // fallback bearing: turn the host so it still faces the client
+                }
                 if (bestDepth < 600f) Log("~WARNING: no deep water found at the chosen range; best seabed " + bestDepth.ToString("0") + " ft");
                 Vector3 dir = Quaternion.Euler(0f, bearing, 0f) * Vector3.forward;
-                Vector3 cp = hp + dir * (range * UnitsPerNm);
-                cp.y = hp.y;
-                float ch = Mathf.Repeat(bearing + 180f + Rnd(-60f, 60f), 360f);
-                int seq = Match.SentSeq;
-                Session.SendGame(G_PLACEMENT, w =>
-                {
-                    WriteV3(w, hp); w.Write(hh); WriteV3(w, cp); w.Write(ch); w.Write(seq);
-                }, true);
-                _placeOwnPos = hp; _placeOwnHeading = hh; _placeOppPos = cp; _placeOppHeading = ch; _havePlacement = true; _placeSeq = seq;
-                Log("~Duel: placed opponent " + range.ToString("F1") + " nm away, bearing " + Mathf.Repeat(bearing, 360f).ToString("F0"));
-                Log("Duel: start positions set (random range in the host's band)");
+                centre[gi] = hp + dir * (range * UnitsPerNm); centre[gi].y = hp.y;
+                bearingOf[gi] = bearing;
+                Log("~Placement: group " + gi + " " + range.ToString("F1") + " nm from the host, bearing " + Mathf.Repeat(bearing, 360f).ToString("F0"));
             }
-            ApplyPlacement();
-            Session.SendGame(G_INMISSION, w => w.Write(true), true);
-            // PoC: no automatic start hold (pausing via timeScale during the load coroutine is unsafe).
-            // Until the opponent's first state arrives, the puppet simply waits at its placement.
+            hh = Mathf.Repeat(hh, 360f);
+            // members: side by side, 1 nm apart, across the line to the other side
+            for (int gi = 0; gi < order.Count; gi++)
+            {
+                List<int> members = new List<int>();
+                for (int k = 0; k < pid.Count; k++) if (grp[k] == order[gi]) members.Add(k);
+                Vector3 toEnemy = gi == 0 ? (others > 0 ? centre[1] - centre[0] : Vector3.forward) : centre[0] - centre[gi];
+                toEnemy.y = 0f; if (toEnemy.sqrMagnitude < 0.01f) toEnemy = Vector3.forward;
+                Vector3 side = Vector3.Cross(Vector3.up, toEnemy.normalized);
+                for (int m = 0; m < members.Count; m++)
+                {
+                    int k = members[m];
+                    // host (first member of group 0) stays put, its teammates go 1, -1, 2 ... nm sideways;
+                    // other groups are centred on their spot
+                    float offNm = gi == 0 ? (m == 0 ? 0f : ((m % 2 == 1) ? 1f : -1f) * ((m + 1) / 2)) : m - (members.Count - 1) / 2f;
+                    Vector3 p = centre[gi] + side * (offNm * UnitsPerNm); p.y = hp.y;
+                    float h;
+                    if (gi == 0) h = m == 0 ? hh : Mathf.Repeat(hh + Rnd(-20f, 20f), 360f);
+                    else h = Mathf.Repeat(bearingOf[gi] + 180f + Rnd(-60f, 60f), 360f);
+                    ids.Add(pid[k]); pos.Add(p); hdg.Add(h);
+                }
+            }
+        }
+
+        /// <summary>Our own sub's and every puppet's start position, from the host's placement list.</summary>
+        static void TakePlacement(List<int> ids, List<Vector3> pos, List<float> hdg, int seq)
+        {
+            for (int k = 0; k < ids.Count; k++)
+            {
+                if (ids[k] == Session.MyId) { _placeOwnPos = pos[k]; _placeOwnHeading = hdg[k]; continue; }
+                Opponent o = Opp(ids[k]);
+                o.PlacePos = pos[k]; o.PlaceHeading = hdg[k]; o.HavePlace = true;
+            }
+            _havePlacement = true; _placeSeq = seq;
         }
 
         /// <summary>The ID book (signatures, recognition manual, classification) comes from the mission's OtherVessels
@@ -345,21 +535,23 @@ namespace ColdWatersMP
         /// without the navy prefix) treats them as different classes, so picking the other era's identical page was a
         /// wrong classification (Raf, 27 Nov). Keep one page per class: the opponent's era where the class has it,
         /// else the nearest era, so the opponent's own page doesn't stand out by era.</summary>
-        static List<int> OnePerClass(List<int> book, DatabaseShipData[] db, int oppCls)
+        static List<int> OnePerClass(List<int> book, DatabaseShipData[] db, List<int> keep)
         {
-            int oppEra = Era(db[oppCls].shipPrefabName);
+            int oppEra = Era(db[keep[0]].shipPrefabName);
             Dictionary<string, int> pick = new Dictionary<string, int>();
             List<string> order = new List<string>();
+            List<int> extra = new List<int>(); // a second opponent class with the same key (two eras in one battle): keep both
             foreach (int id in book)
             {
                 string key = ClassKey(db[id].shipPrefabName);
                 int cur;
                 if (!pick.TryGetValue(key, out cur)) { pick[key] = id; order.Add(key); continue; }
-                if (cur == oppCls) continue;
-                if (id == oppCls || EraDistance(Era(db[id].shipPrefabName), oppEra) < EraDistance(Era(db[cur].shipPrefabName), oppEra)) pick[key] = id;
+                if (keep.Contains(cur)) { if (keep.Contains(id) && !extra.Contains(id)) extra.Add(id); continue; }
+                if (keep.Contains(id) || EraDistance(Era(db[id].shipPrefabName), oppEra) < EraDistance(Era(db[cur].shipPrefabName), oppEra)) pick[key] = id;
             }
             List<int> result = new List<int>();
             foreach (string k in order) result.Add(pick[k]);
+            foreach (int id in extra) if (!result.Contains(id)) result.Add(id);
             if (result.Count < book.Count) Log("~ID book: " + (book.Count - result.Count) + " era duplicate(s) left out (one page per class, era " + oppEra + " first)");
             return result;
         }
@@ -412,18 +604,21 @@ namespace ColdWatersMP
             if (!_oppColorLogged) { _oppColorLogged = true; Log("~Opponent colour on the map: " + (c == WpRed ? "WP red" : "NATO blue")); }
         }
 
-        static void SetIdBook(int oppCls)
+        /// <summary>The ID book for the opponents' classes: every sub of their side(s), one page per class.</summary>
+        static void SetIdBook(List<int> classes)
         {
             try
             {
                 PlayerFunctions pf = UIFunctions.globaluifunctions.playerfunctions;
                 DatabaseShipData[] db = UIFunctions.globaluifunctions.database.databaseshipdata;
-                string side = Side(db[oppCls].shipPrefabName);
+                List<string> sides = new List<string>();
+                foreach (int c in classes) { string sd = Side(db[c].shipPrefabName); if (!sides.Contains(sd)) sides.Add(sd); }
+                string side = string.Join(" + ", sides.ToArray());
                 List<int> book = new List<int>();
                 int[] all = Patch_PopulateLevelLoadData_AllSubs.AllSubs();
                 if (all != null)
                     foreach (int id in all)
-                        if (Side(db[id].shipPrefabName) == side && !book.Contains(id)) book.Add(id);
+                        if (sides.Contains(Side(db[id].shipPrefabName)) && !book.Contains(id)) book.Add(id);
                 if (book.Count < 3)
                 {
                     // The sub list didn't load: fall back to every real sub of that side in the database, so the book
@@ -431,24 +626,26 @@ namespace ColdWatersMP
                     Log("~WARNING: ID book sub list has only " + book.Count + " entries; using the database instead");
                     for (int id = 0; id < db.Length; id++)
                         if (db[id] != null && db[id].shipType == "SUBMARINE" && Patch_PopulateLevelLoadData_AllSubs.IsRealSub(db[id].shipPrefabName)
-                            && Side(db[id].shipPrefabName) == side && !book.Contains(id)) book.Add(id);
+                            && sides.Contains(Side(db[id].shipPrefabName)) && !book.Contains(id)) book.Add(id);
                 }
-                if (!book.Contains(oppCls)) book.Add(oppCls);
-                book = OnePerClass(book, db, oppCls);
+                foreach (int c in classes) if (!book.Contains(c)) book.Add(c);
+                book = OnePerClass(book, db, classes);
                 int subs = book.Count;
                 foreach (int c in Ambient.Classes()) if (!book.Contains(c)) book.Add(c); // neutral traffic, so it can be classified too
                 pf.otherVesselList = book.ToArray();
                 pf.currentSignatureIndex = Random.Range(0, subs); // a random sub page, so the first page says nothing; no bounds check in the game
+                string pages = "";
+                foreach (int c in classes) pages += (pages.Length > 0 ? ", " : "") + (book.IndexOf(c) + 1);
                 Log("ID book: " + subs + " " + side + " submarines" + (book.Count > subs ? " + " + (book.Count - subs) + " neutral classes" : "")
-                    + "; opponent's class on page " + (book.IndexOf(oppCls) + 1));
+                    + "; " + (classes.Count == 1 ? "opponent's class on page " : "opponents' classes on pages ") + pages);
             }
             catch (System.Exception ex) { Log("ID book not changed: " + ex.Message); }
         }
 
-        static void MakePuppet(Vessel v)
+        static void MakePuppet(Opponent o)
         {
-            AiOff(v);
-            Log("Duel: enemy 0 (" + v.databaseshipdata.shipPrefabName + ") is now the opponent puppet, AI off");
+            AiOff(o.Puppet);
+            Log((InGame.Count == 1 ? "Duel: enemy " : "Battle: enemy ") + o.Base + " (" + o.Puppet.databaseshipdata.shipPrefabName + ") is now " + (InGame.Count == 1 ? "the opponent" : o.Label + "'s") + " puppet, AI off");
         }
 
         public static void AiOff(Vessel v)
@@ -476,10 +673,10 @@ namespace ColdWatersMP
             Vessel own = OwnVessel();
             if (own == null) { Log("Placement arrived before our mission was loaded; keeping it for later"); return; }
             Teleport(own, _placeOwnPos, _placeOwnHeading); // host: same spot, new heading
-            if (Puppet != null) Teleport(Puppet, _placeOppPos, _placeOppHeading);
+            foreach (Opponent o in InGame) if (o.HavePlace && o.Puppet != null) { Teleport(o.Puppet, o.PlacePos, o.PlaceHeading); o.HavePlace = false; }
             _havePlacement = false;
             PlacementApplied = true;
-            Log("Duel: placement applied");
+            Log((InGame.Count == 1 ? "Duel" : "Battle") + ": placement applied");
         }
 
         /// <summary>Seabed depth in feet at a point; very large if there is no terrain. Takes the shallower of the game's
@@ -522,25 +719,32 @@ namespace ColdWatersMP
             v.transform.eulerAngles = e;
         }
 
-        /// <summary>Testing: jump our own sub to <paramref name="nm"/> off the opponent's bow, pointing at them.
-        /// Our next state update moves our sub on the opponent's screen too.</summary>
+        /// <summary>Testing: jump our own sub to <paramref name="nm"/> off the nearest opponent's bow, pointing at them.
+        /// Our next state update moves our sub on the opponents' screens too.</summary>
         public static void DebugTeleportNearOpponent(float nm)
         {
-            if (!InDuel || Puppet == null) return;
-            Vessel own = GameDataManager.playervesselsonlevel[0];
-            if (own == null) return;
-            Vector3 fwd = Puppet.transform.forward; fwd.y = 0f;
+            Vessel own = OwnVessel();
+            if (!InDuel || own == null) return;
+            Vessel p = null; float best = float.MaxValue;
+            foreach (Opponent o in InGame)
+            {
+                if (o.Puppet == null || o.Sunk) continue;
+                float d = Vector3.Distance(own.transform.position, o.Puppet.transform.position);
+                if (d < best) { best = d; p = o.Puppet; }
+            }
+            if (p == null) return;
+            Vector3 fwd = p.transform.forward; fwd.y = 0f;
             if (fwd.sqrMagnitude < 0.0001f) fwd = Vector3.forward;
             fwd.Normalize();
-            Vector3 pos = Puppet.transform.position + fwd * (nm * UnitsPerNm);
-            Vector3 toOpp = Puppet.transform.position - pos;
+            Vector3 pos = p.transform.position + fwd * (nm * UnitsPerNm);
+            Vector3 toOpp = p.transform.position - pos;
             float heading = Mathf.Atan2(toOpp.x, toOpp.z) * Mathf.Rad2Deg;
             if (heading < 0f) heading += 360f;
             Teleport(own, pos, heading);
             Log("DEBUG: teleported to " + nm.ToString("F1") + " nm off the opponent's bow, heading " + heading.ToString("0"));
         }
 
-        /// <summary>Battlestations prefix: tell the opponent; hold until they are there too.</summary>
+        /// <summary>Battlestations prefix: tell the others; hold until they are all there too.</summary>
         public static bool OnBattlestations(MissionManager mm)
         {
             if (!InDuel || !Active || _releasingStations) return true;
@@ -549,9 +753,9 @@ namespace ColdWatersMP
                 _ownAtStations = true;
                 Session.SendGame(G_STATIONS, w => { }, true);
             }
-            if (_oppAtStations) return true;
+            if (AllAtStations) return true;
             _heldStations = mm;
-            Log("Waiting for the opponent to reach battlestations (Ctrl+F8: start anyway)");
+            Log("Waiting for " + (InGame.Count == 1 ? "the opponent" : "the other players") + " to reach battlestations (Ctrl+F8: start anyway)");
             return false;
         }
 
@@ -567,29 +771,54 @@ namespace ColdWatersMP
         }
 
         // ---------- match result ----------
-        static bool _ownSunk, _oppSunk;
+        static bool _ownSunk, _resultFinal;
         static float _startTime;
         public static string Result = "";
 
-        public static void OnOwnSinking() { if (_ownSunk || !InDuel) return; _ownSunk = true; AnnounceResult(); }
-        public static void OnOppSinking() { if (_oppSunk || !InDuel) return; _oppSunk = true; AnnounceResult(); }
-
-        static void AnnounceResult()
+        public static void OnOwnSinking()
         {
+            if (_ownSunk || !InDuel) return;
+            _ownSunk = true;
+            if (InGame.Count > 1) Say("Our sub is sinking");
+            CheckEnd();
+        }
+
+        public static void OnOppSinking(Opponent o)
+        {
+            if (o == null || o.Sunk || !InDuel) return;
+            o.Sunk = true;
+            if (InGame.Count > 1) Say(o.Label + "'s " + o.ClassName + " is sinking");
+            CheckEnd();
+        }
+
+        static void Say(string what)
+        {
+            Log(what);
+            try { PlayerFunctions pf = UIFunctions.globaluifunctions.playerfunctions; pf.PlayerMessage(what, pf.messageLogColors["Helm"], "CWMP"); }
+            catch (System.Exception) { }
+        }
+
+        /// <summary>The match is over when at most one side has a sub afloat (sides: the lobby teams when there are two,
+        /// else every player for themselves). A later sinking can still turn a defeat into a draw.</summary>
+        static void CheckEnd()
+        {
+            if (!InDuel) return;
+            HashSet<int> alive = new HashSet<int>();
+            int mine = GroupOf(Session.MyId, MyTeam);
+            if (!_ownSunk) alive.Add(mine);
+            foreach (Opponent o in InGame) if (!o.Sunk && o.Puppet != null && _opps.ContainsKey(o.Id)) alive.Add(GroupOf(o.Id, o.Team));
+            if (alive.Count > 1) return;
             string what;
-            if (_ownSunk && _oppSunk) what = "DRAW: both subs lost";
-            else if (_oppSunk) what = "VICTORY: the opponent's " + OppClassName + " is sinking";
-            else what = "DEFEAT: your sub is sinking";
+            if (alive.Count == 0) what = InGame.Count == 1 ? "DRAW: both subs lost" : "DRAW: every sub lost";
+            else if (alive.Contains(mine)) what = InGame.Count == 1 ? "VICTORY: the opponent's " + InGame[0].ClassName + " is sinking" : (_ownSunk ? "VICTORY for your side (your sub was lost)" : "VICTORY: last side afloat");
+            else what = InGame.Count == 1 ? "DEFEAT: your sub is sinking" : "DEFEAT: your side is out";
+            if (_resultFinal && Result.StartsWith(what)) return;
+            _resultFinal = true;
             float mins = (Time.time - _startTime) / 60f;
             Result = what + " (" + mins.ToString("0.0") + " min; torpedoes fired " + Weapons.OwnFired + " vs " + Weapons.OppFired
                 + ", hits " + Weapons.OwnHits + " vs " + Weapons.OppHits + ")";
             Log("RESULT " + Result);
-            try
-            {
-                PlayerFunctions pf = UIFunctions.globaluifunctions.playerfunctions;
-                pf.PlayerMessage(what, pf.messageLogColors["Helm"], "CWMP");
-            }
-            catch (System.Exception) { }
+            Say(what);
         }
 
         /// <summary>Our own vessel, or null if none (or it was destroyed with the previous scene).</summary>
@@ -613,21 +842,27 @@ namespace ColdWatersMP
         /// <summary>Called on mission exit (or session loss).</summary>
         public static void EndDuel()
         {
-            InDuel = false; Puppet = null; LocalInMission = false;
+            InDuel = false; LocalInMission = false;
+            foreach (Opponent o in InGame) o.Puppet = null;
+            InGame.Clear();
             _choiceMade = false; _heldLoad = null; // a new mission needs a new choice
-            _ownAtStations = false; _oppAtStations = false; _heldStations = null; OppMissionId = -1;
+            _ownAtStations = false; _heldStations = null;
             TimeSync.Reset();
             Match.RestoreLocalDifficulty();
-            _oppInOldMission = OppInMission;
-            if (OppInMission)
+            foreach (Opponent o in Opps)
             {
-                // They are still in the old mission: their sub choice (and, for a client, the host's map) belong
-                // to it. They send fresh ones when they choose again.
-                OppClass = -1; OppClassName = "";
-                if (!Session.IsHost) Match.OnHostLeftMission();
+                o.AtStations = false; o.MissionId = -1;
+                o.InOldMission = o.InMission;
+                if (o.InMission)
+                {
+                    // They are still in the old mission: their sub choice (and, for a client, the host's map) belong
+                    // to it. They send fresh ones when they choose again.
+                    o.Class = -1; o.ClassName = "";
+                    if (!Session.IsHost && o.Id == 0) Match.OnHostLeftMission();
+                }
             }
-            _ownSunk = false; _oppSunk = false; // keep Result on the overlay until the next mission
-            EnvSync.HostNewSeed(); // host: new ocean for the next mission (the client keeps the latest seed it got)
+            _ownSunk = false; // keep Result on the overlay until the next mission
+            EnvSync.HostNewSeed(); // host: new ocean for the next mission (the clients keep the latest seed they got)
             Weapons.Reset();
             Ghosts.Reset();
             Tracks.Reset();
@@ -640,7 +875,7 @@ namespace ColdWatersMP
         public static void Update()
         {
             if (!InDuel || !Active) return;
-            if (Puppet == null || OwnVessel() == null) return;
+            if (InGame.Count == 0 || OwnVessel() == null) return;
 
             _diagTimer += Time.unscaledDeltaTime;
             if (_diagTimer >= 10f) { _diagTimer = 0f; LogSonarDiagnostics(); }
@@ -651,7 +886,7 @@ namespace ColdWatersMP
                 _sendTimer = 0f;
                 SendOwnState(OwnVessel());
             }
-            DrivePuppet();
+            foreach (Opponent o in InGame) if (o.Puppet != null) DrivePuppet(o);
             try { Ghosts.Update(); } catch (System.Exception ex) { Log("~Ghost update failed: " + ex); }
             try { Tracks.Update(); } catch (System.Exception ex) { Log("~Track update failed: " + ex.Message); }
             try { ApplyOpponentColor(); } catch (System.Exception) { }
@@ -677,47 +912,49 @@ namespace ColdWatersMP
             }, false);
         }
 
-        static void DrivePuppet()
+        static void DrivePuppet(Opponent o)
         {
-            if (!_haveState) return;
-            VesselMovement m = Puppet.vesselmovement;
+            if (!o.HaveState) return;
+            Vessel puppet = o.Puppet;
+            SubState s0 = o.S0, s1 = o.S1;
+            VesselMovement m = puppet.vesselmovement;
             // Inputs, so the game's own movement and noise code see the right values
-            m.telegraphValue = _s1.Telegraph;
-            m.rudderAngle = _s1.Rudder;
-            m.ballastAngle = _s1.Ballast;
-            m.isCavitating = _s1.Cav;
-            Puppet.acoustics.usingActiveSonar = _s1.Active;
+            m.telegraphValue = s1.Telegraph;
+            m.rudderAngle = s1.Rudder;
+            m.ballastAngle = s1.Ballast;
+            m.isCavitating = s1.Cav;
+            puppet.acoustics.usingActiveSonar = s1.Active;
             // Their pings, at the player's ping rate: ping sound from their sub and the ping line on our map.
-            if (_s1.Active && !Puppet.isSinking)
+            if (s1.Active && !puppet.isSinking)
             {
                 PlayerFunctions pf = UIFunctions.globaluifunctions.playerfunctions;
-                _pingTimer += Time.deltaTime;
-                if (_pingTimer > pf.activeSonarPingRate)
+                o.PingTimer += Time.deltaTime;
+                if (o.PingTimer > pf.activeSonarPingRate)
                 {
-                    _pingTimer -= pf.activeSonarPingRate;
-                    UIFunctions.globaluifunctions.combatai.PlaySonarPing(Puppet);
-                    pf.sensormanager.tacticalmap.DrawPingLine(Puppet.transform, pf.sensormanager.tacticalmap.pingLines[0]);
+                    o.PingTimer -= pf.activeSonarPingRate;
+                    UIFunctions.globaluifunctions.combatai.PlaySonarPing(puppet);
+                    pf.sensormanager.tacticalmap.DrawPingLine(puppet.transform, pf.sensormanager.tacticalmap.pingLines[0]);
                 }
             }
-            else _pingTimer = UIFunctions.globaluifunctions.playerfunctions.activeSonarPingRate; // ping at once when they start
-            Vector3 sp = m.shipSpeed; sp.z = _s1.SpeedZ; m.shipSpeed = sp;
-            Puppet.submerged = _s1.Submerged;
-            ApplyTowed(Puppet, _s1.Towed);
+            else o.PingTimer = UIFunctions.globaluifunctions.playerfunctions.activeSonarPingRate; // ping at once when they start
+            Vector3 sp = m.shipSpeed; sp.z = s1.SpeedZ; m.shipSpeed = sp;
+            puppet.submerged = s1.Submerged;
+            ApplyTowed(puppet, s1.Towed);
 
             // Extrapolate the target pose from the last two states (unit-agnostic)
-            Vector3 target = _s1.Pos;
-            float dtStates = _s1.T - _s0.T;
-            if (_stateCount > 1 && dtStates > 0.001f && dtStates < 2f)
+            Vector3 target = s1.Pos;
+            float dtStates = s1.T - s0.T;
+            if (o.StateCount > 1 && dtStates > 0.001f && dtStates < 2f)
             {
-                Vector3 vel = (_s1.Pos - _s0.Pos) / dtStates;
-                float ahead = Mathf.Min(Time.time - _s1LocalTime, 1f);
+                Vector3 vel = (s1.Pos - s0.Pos) / dtStates;
+                float ahead = Mathf.Min(Time.time - o.S1Local, 1f);
                 target += vel * ahead;
             }
-            Transform tr = Puppet.transform;
+            Transform tr = puppet.transform;
             Vector3 err = target - tr.position;
             if (err.magnitude > 1.0f) tr.position = target;                 // > ~75 yd: snap
             else tr.position += err * Mathf.Min(1f, Time.deltaTime * 4f);    // smooth
-            Quaternion want = Quaternion.Euler(_s1.Euler);
+            Quaternion want = Quaternion.Euler(s1.Euler);
             if (Quaternion.Angle(tr.rotation, want) > 20f) tr.rotation = want;
             else tr.rotation = Quaternion.Slerp(tr.rotation, want, Mathf.Min(1f, Time.deltaTime * 4f));
         }
@@ -726,50 +963,66 @@ namespace ColdWatersMP
 
         static void OnGameMessage(byte type, BinaryReader r)
         {
-            if (Session.PlayerCount > 2) return; // the duel code knows one opponent; team battles get their own handling
             if (Weapons.OnMessage(type, r)) return;
             if (EnvSync.OnMessage(type, r)) return;
             if (Match.OnMessage(type, r)) return;
             if (TimeSync.OnMessage(type, r)) return;
             if (Ambient.OnMessage(type, r)) return;
+            if (Session.LastSender == Session.MyId) return; // never our own
+            Opponent o = Sender;
+            string who = Opps.Count <= 1 ? "Opponent" : o.Label;
             switch (type)
             {
                 case G_SUBCHOICE:
-                    OppClass = r.ReadInt32(); OppClassName = r.ReadString(); OppRpgSelfNoiseBonus = r.ReadSingle();
-                    OppMissionId = r.ReadInt32();
-                    if (OppClass < 0 || OppClass >= UIFunctions.globaluifunctions.database.databaseshipdata.Length) { Log("Ignored an unknown sub class " + OppClass); OppClass = -1; OppClassName = ""; break; }
+                    o.Class = r.ReadInt32(); o.ClassName = r.ReadString(); o.RpgSelfNoiseBonus = r.ReadSingle();
+                    o.MissionId = r.ReadInt32();
+                    if (o.Class < 0 || o.Class >= UIFunctions.globaluifunctions.database.databaseshipdata.Length) { Log("Ignored an unknown sub class " + o.Class); o.Class = -1; o.ClassName = ""; break; }
                     int ownMission = UIFunctions.globaluifunctions.missionmanager.currentMissionID;
-                    if (OppMissionId != ownMission) Log("Note: opponent picked mission " + OppMissionId + ", you picked " + ownMission + "; the host's map and conditions are used.");
-                    string mine = ClassName(OppClass);
-                    if (mine != OppClassName) Log("WARNING: opponent's sub " + OppClassName + " is " + mine + " here (data mismatch?)");
-                    Log("Opponent chose " + OppClassName);
-                    if (_heldLoad != null && !_oppInOldMission && (Session.IsHost || Match.HaveHostMatch)) ReleaseHeldLoad("opponent chose " + OppClassName);
-                    if (InDuel && Puppet != null && Puppet.databaseshipdata.shipPrefabName != OppClassName)
-                        Log("WARNING: puppet is a " + Puppet.databaseshipdata.shipPrefabName + " but opponent chose " + OppClassName + ". Pick both subs before starting either mission.");
+                    if (o.MissionId != ownMission) Log("Note: " + who + " picked mission " + o.MissionId + ", you picked " + ownMission + "; the host's map and conditions are used.");
+                    string mine = ClassName(o.Class);
+                    if (mine != o.ClassName) Log("WARNING: " + who + "'s sub " + o.ClassName + " is " + mine + " here (data mismatch?)");
+                    Log(who + " chose " + o.ClassName);
+                    if (_heldLoad != null && AllChosen && !AnyInOldMission && (Session.IsHost || Match.HaveHostMatch)) ReleaseHeldLoad(who + " chose " + o.ClassName);
+                    if (InDuel && o.Puppet != null && o.Puppet.databaseshipdata.shipPrefabName != o.ClassName)
+                        Log("WARNING: " + who + "'s puppet is a " + o.Puppet.databaseshipdata.shipPrefabName + " but they chose " + o.ClassName + ". Pick all subs before starting any mission.");
                     break;
                 case G_PLACEMENT:
                 {
-                    Vector3 hp = ReadV3(r); float hh = r.ReadSingle(); Vector3 cp = ReadV3(r); float ch = r.ReadSingle();
-                    int seq = r.ReadInt32();
-                    // We are the client: our own sub goes to cp, the host's puppet to hp. The host often sends this
-                    // before our own load has applied its match, so keep it with its number; ApplyPlacement checks it.
-                    _placeOwnPos = cp; _placeOwnHeading = ch; _placeOppPos = hp; _placeOppHeading = hh;
-                    _havePlacement = true; _placeSeq = seq;
+                    // From the host: everyone's start position. The host often sends this before our own load has
+                    // applied its match, so keep it with its number; ApplyPlacement checks it.
+                    int seq = r.ReadInt32(); int n = r.ReadInt32();
+                    if (n < 0 || n > Session.MaxPlayers) break;
+                    List<int> ids = new List<int>(); List<Vector3> pos = new List<Vector3>(); List<float> hdg = new List<float>();
+                    for (int k = 0; k < n; k++) { ids.Add(r.ReadInt32()); pos.Add(ReadV3(r)); hdg.Add(r.ReadSingle()); }
+                    TakePlacement(ids, pos, hdg, seq);
                     ApplyPlacement();
                     break;
                 }
                 case G_STATIONS:
-                    _oppAtStations = true;
-                    Log("Opponent is at battlestations");
-                    if (_heldStations != null) ReleaseStations("opponent ready");
+                    o.AtStations = true;
+                    Log(who + " is at battlestations");
+                    if (_heldStations != null && AllAtStations) ReleaseStations(Opps.Count <= 1 ? "opponent ready" : "all players ready");
                     break;
                 case G_INMISSION:
-                    OppInMission = r.ReadBoolean();
-                    Log("Opponent " + (OppInMission ? "is in the mission" : "left the mission"));
-                    if (!OppInMission) _oppInOldMission = false;
-                    if (!OppInMission && !Session.IsHost) Match.OnHostLeftMission();
-                    if (!OppInMission) TimeSync.Reset();
-                    if (!OppInMission) { OppClass = -1; OppClassName = ""; _oppAtStations = false; OppMissionId = -1; } // they will choose again
+                    o.InMission = r.ReadBoolean();
+                    Log(who + (o.InMission ? " is in the mission" : " left the mission"));
+                    if (!o.InMission && InDuel && InGame.Count > 1 && o.Puppet != null && !o.Sunk)
+                    {
+                        // They quit a battle that goes on: their sub leaves it (far off the map, out of hearing) and is out.
+                        Vector3 far = new Vector3(0f, o.Puppet.transform.position.y, -250f * UnitsPerNm);
+                        o.Puppet.transform.position = far; o.HaveState = false;
+                        o.Sunk = true;
+                        Say(o.Label + " left the battle");
+                        CheckEnd();
+                    }
+                    if (!o.InMission)
+                    {
+                        o.InOldMission = false;
+                        if (!Session.IsHost && o.Id == 0) Match.OnHostLeftMission();
+                        TimeSync.Reset();
+                        o.Class = -1; o.ClassName = ""; o.AtStations = false; o.MissionId = -1; // they will choose again
+                        if (_heldLoad != null && AllChosen && !AnyInOldMission && (Session.IsHost || Match.HaveHostMatch)) ReleaseHeldLoad(who + " left the old mission");
+                    }
                     break;
                 case G_STATE:
                 {
@@ -781,12 +1034,13 @@ namespace ColdWatersMP
                     s.Cav = r.ReadBoolean(); s.Silent = r.ReadBoolean(); s.Submerged = r.ReadBoolean();
                     s.Active = r.ReadBoolean();
                     s.Towed = r.ReadByte();
-                    if (_stateCount > 0 && s.T <= _s1.T) break; // stale/out of order
-                    _s0 = _stateCount > 0 ? _s1 : s; _s1 = s; _s1LocalTime = Time.time;
-                    OppRunningSilent = s.Silent;
-                    if (s.Active != OppActiveSonar) Log("Opponent switched to " + (s.Active ? "ACTIVE" : "passive") + " sonar");
-                    OppActiveSonar = s.Active;
-                    _stateCount++; _haveState = true;
+                    if (o.StateCount > 0 && s.T <= o.S1.T) break; // stale/out of order
+                    if (o.Sunk && !o.InMission) break; // they left this battle: their next mission is not ours
+                    o.S0 = o.StateCount > 0 ? o.S1 : s; o.S1 = s; o.S1Local = Time.time;
+                    o.RunningSilent = s.Silent;
+                    if (s.Active != o.ActiveSonar) Log(who + " switched to " + (s.Active ? "ACTIVE" : "passive") + " sonar");
+                    o.ActiveSonar = s.Active;
+                    o.StateCount++; o.HaveState = true;
                     break;
                 }
             }
@@ -801,9 +1055,6 @@ namespace ColdWatersMP
             if (ta == null) return 0;
             try { return ta.isDestroyed ? (byte)2 : ta.GetDeployed() ? (byte)1 : (byte)0; } catch (System.Exception) { return 0; }
         }
-
-        /// <summary>The opponent's array state as last received.</summary>
-        public static byte OppTowed { get { return _haveState ? _s1.Towed : (byte)0; } }
 
         public static void ApplyTowed(Vessel v, byte state)
         {
@@ -825,19 +1076,22 @@ namespace ColdWatersMP
         public static bool IsRemoteArray(DotModTowedArray ta)
         {
             if (!InDuel || ta == null) return false;
-            if (Puppet != null && Puppet.vesselmovement != null && Puppet.vesselmovement.towedArray == ta) return true;
+            foreach (Opponent o in InGame) if (o.Puppet != null && o.Puppet.vesselmovement != null && o.Puppet.vesselmovement.towedArray == ta) return true;
             return Ghosts.OwnsArray(ta);
         }
 
         static void WriteV3(BinaryWriter w, Vector3 v) { w.Write(v.x); w.Write(v.y); w.Write(v.z); }
         static Vector3 ReadV3(BinaryReader r) { return new Vector3(r.ReadSingle(), r.ReadSingle(), r.ReadSingle()); }
 
-        public static bool IsPuppet(Vessel v) { return InDuel && v != null && v == Puppet; }
-        /// <summary>The puppet or one of the decoy ghosts: network-driven, AI off.</summary>
+        public static bool IsPuppet(Vessel v) { return ByPuppet(v) != null; }
+        public static bool IsPuppetAI(VesselAI ai)
+        {
+            if (!InDuel || ai == null) return false;
+            foreach (Opponent o in InGame) if (o.Puppet != null && o.Puppet.vesselai == ai) return true;
+            return false;
+        }
+        /// <summary>A puppet or one of the decoy ghosts: network-driven, AI off.</summary>
         public static bool IsRemote(Vessel v) { return IsPuppet(v) || Ghosts.IsGhost(v); }
-        public static float LastPuppetNoise = 100f;
-        /// <summary>The speed and cavitation part of LastPuppetNoise, so a ghost can swap in its own speed.</summary>
-        public static float LastPuppetSpeedNoise;
     }
 
     // ---------- Harmony patches ----------
@@ -887,7 +1141,7 @@ namespace ColdWatersMP
     {
         static bool Prefix(VesselAI __instance)
         {
-            return !(Duel.InDuel && ((Duel.Puppet != null && Duel.Puppet.vesselai == __instance) || Ghosts.IsGhostAI(__instance) || Ambient.IsRemoteAI(__instance)));
+            return !(Duel.InDuel && (Duel.IsPuppetAI(__instance) || Ghosts.IsGhostAI(__instance) || Ambient.IsRemoteAI(__instance)));
         }
     }
 
@@ -954,15 +1208,16 @@ namespace ColdWatersMP
         {
             if (Duel.InDuel) { try { Ghosts.RayFocus(activeVessel); } catch (System.Exception) { } }
             if (Duel.InDuel && Ghosts.Noise(activeVessel, ref __result)) return;
-            if (!Duel.IsPuppet(activeVessel)) return;
-            if (Duel.OppRunningSilent)
+            Opponent opp = Duel.ByPuppet(activeVessel);
+            if (opp == null) return;
+            if (opp.RunningSilent)
             {
                 float b = Random.Range(__instance.runningSilentBonus.x, __instance.runningSilentBonus.y);
                 if (activeVessel.databaseshipdata.isDiesel) b *= Random.Range(1.2f, 1.8f);
                 __result -= b;
             }
             // The player formula subtracts the RPG bonus before compression.
-            if (__instance.passiveCompressionFactor != 0f) __result -= Duel.OppRpgSelfNoiseBonus / __instance.passiveCompressionFactor;
+            if (__instance.passiveCompressionFactor != 0f) __result -= opp.RpgSelfNoiseBonus / __instance.passiveCompressionFactor;
             // A decoy copies the hull's noise, not the sonar's. The game's AI rule has already added output/4 for a pinging
             // vessel (when it was below the output), so take that off again.
             float hull = __result;
@@ -972,12 +1227,12 @@ namespace ColdWatersMP
                 float o = UIFunctions.globaluifunctions.database.databasesonardata[asid].sonarOutput;
                 if (hull - o / 4f < o) hull -= o / 4f;
             }
-            Duel.LastPuppetNoise = hull;
-            Duel.LastPuppetSpeedNoise = Mathf.Abs(activeVessel.vesselmovement.shipSpeed.z) * 10f * __instance.targetNoisePerKnot
+            opp.LastNoise = hull;
+            opp.LastSpeedNoise = Mathf.Abs(activeVessel.vesselmovement.shipSpeed.z) * 10f * __instance.targetNoisePerKnot
                 + (activeVessel.vesselmovement.isCavitating ? __instance.noiseFromCavitation : 0f);
             // A pinging player is at least as loud as their sonar's output (player rule, not the AI's +output/4).
             int sid = activeVessel.databaseshipdata.activeSonarID;
-            if (Duel.OppActiveSonar && sid >= 0)
+            if (opp.ActiveSonar && sid >= 0)
             {
                 float output = UIFunctions.globaluifunctions.database.databasesonardata[sid].sonarOutput;
                 if (__result < output) __result = output;
@@ -1093,7 +1348,7 @@ namespace ColdWatersMP
             if (!Duel.InDuel || activeVessel == null) return;
             try
             {
-                bool own = activeVessel.playercontrolled, opp = activeVessel == Duel.Puppet;
+                bool own = activeVessel.playercontrolled, opp = Duel.IsPuppet(activeVessel);
                 if (!own && !opp) return;
                 Vector3 d = activeVessel.transform.position - __state; d.y = 0f;
                 if (d.sqrMagnitude < 0.01f) return;

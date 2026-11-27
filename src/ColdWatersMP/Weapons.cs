@@ -15,6 +15,7 @@ namespace ColdWatersMP
 
         class Incoming
         {
+            public Opponent Firer; public int Id; // the firer's own torpedo number
             public Torpedo T;
             public Vector3 Pos0, Pos1; public Vector3 Euler1; public float T0, T1, Local1; public int Count;
             public float SpawnLocal; public float EndAt = -1f; public bool Homing; public bool Armed;
@@ -25,7 +26,10 @@ namespace ColdWatersMP
         static int _nextId = 1;
         static readonly Dictionary<int, Torpedo> _own = new Dictionary<int, Torpedo>();
         static readonly Dictionary<Torpedo, int> _ownIds = new Dictionary<Torpedo, int>();
+        // Other players' torpedoes, by Key(firer, their number): torpedo numbers are per firer.
         static readonly Dictionary<int, Incoming> _incoming = new Dictionary<int, Incoming>();
+        public static int Key(int firer, int id) { return (firer << 20) | (id & 0xFFFFF); }
+        static string Tag(Opponent firer, int id) { return (Duel.Opps.Count > 1 ? firer.Label + "'s torpedo #" : "Opponent torpedo #") + id; }
         static readonly HashSet<Torpedo> _puppetTorps = new HashSet<Torpedo>();
         static readonly HashSet<int> _onNoisemaker = new HashSet<int>();
         static readonly Dictionary<int, float> _decoyLogAt = new Dictionary<int, float>();
@@ -86,7 +90,9 @@ namespace ColdWatersMP
                 int id = kv.Key;
                 if (t == null) { if (ended == null) ended = new List<int>(); ended.Add(id); continue; }
                 Vector3 pos = t.transform.position; Vector3 eul = t.transform.eulerAngles; float time = Time.time;
-                bool homing = Duel.Puppet != null && t.targetTransform == Duel.Puppet.transform;
+                // whose sub it is homing on (their player number, -1 none): only that player's game gives the callout
+                int target = -1;
+                if (t.targetTransform != null) foreach (Opponent o in Duel.InGame) if (o.Puppet != null && t.targetTransform == o.Puppet.transform) { target = o.Id; break; }
                 // targetNoisemaker is a scratch field; the chosen target is targetTransform.
                 Noisemaker nm = t.targetTransform != null ? t.targetTransform.GetComponent<Noisemaker>() : null;
                 Torpedo dt = (nm == null && t.targetTransform != null) ? t.targetTransform.GetComponent<Torpedo>() : null;
@@ -103,7 +109,7 @@ namespace ColdWatersMP
                         Duel.Log("~Our torpedo #" + id + (decoyed ? " is going for " + what : " left the noisemaker/decoy"));
                     }
                 }
-                S.SendGame(G_TORP_STATE, w => { w.Write(id); w.Write(time); WriteV3(w, pos); WriteV3(w, eul); w.Write(homing); }, false);
+                S.SendGame(G_TORP_STATE, w => { w.Write(id); w.Write(time); WriteV3(w, pos); WriteV3(w, eul); w.Write(target); }, false);
             }
             if (ended == null) return;
             foreach (int id in ended)
@@ -121,15 +127,16 @@ namespace ColdWatersMP
 
         // ---------- target side ----------
 
-        static void SpawnPuppetTorpedo(int id, int weaponId, Vector3 pos, Vector3 eul, bool payload)
+        static void SpawnPuppetTorpedo(Opponent firer, int id, int weaponId, Vector3 pos, Vector3 eul, bool payload)
         {
-            if (Duel.Puppet == null) return;
+            if (firer == null || firer.Puppet == null) return;
+            int key = Key(firer.Id, id);
             DatabaseWeaponData wd = UIFunctions.globaluifunctions.database.databaseweapondata[weaponId];
             GameObject go = (GameObject)Object.Instantiate(wd.weaponObject, pos, Quaternion.Euler(eul));
             go.SetActive(true);
             Torpedo t = go.GetComponent<Torpedo>();
             t.databaseweapondata = wd;
-            t.vesselFiredFrom = Duel.Puppet;
+            t.vesselFiredFrom = firer.Puppet;
             t.whichNavy = 1;
             t.onWire = false;
             t.usesParachute = payload; // rocket payloads come down under a parachute
@@ -141,21 +148,21 @@ namespace ColdWatersMP
             try { if (t.tacMapTorpedoIcon != null && t.tacMapTorpedoIcon.contactText != null) t.tacMapTorpedoIcon.contactText.gameObject.SetActive(false); }
             catch (System.Exception ex) { Duel.Log("~Torpedo label hide failed: " + ex.Message); }
             bool decoy = Ghosts.IsDecoy(wd);
-            Incoming inc = new Incoming { T = t, Pos0 = pos, Pos1 = pos, Euler1 = eul, T0 = 0, T1 = 0, Local1 = Time.time, Count = 0, SpawnLocal = Time.time, Payload = payload, Decoy = decoy };
-            _incoming[id] = inc;
+            Incoming inc = new Incoming { Firer = firer, Id = id, T = t, Pos0 = pos, Pos1 = pos, Euler1 = eul, T0 = 0, T1 = 0, Local1 = Time.time, Count = 0, SpawnLocal = Time.time, Payload = payload, Decoy = decoy };
+            _incoming[key] = inc;
             if (decoy)
             {
                 // Never shown as a weapon here: the opponent's decoy becomes a ghost sub.
-                Duel.Log("~Opponent launched decoy #" + id + " (" + wd.weaponName + ")");
-                try { Ghosts.OnDecoySpawned(id, t, wd); } catch (System.Exception ex) { Duel.Log("~Ghost start failed: " + ex.Message); }
+                Duel.Log("~" + (Duel.Opps.Count > 1 ? firer.Label : "Opponent") + " launched decoy #" + id + " (" + wd.weaponName + ")");
+                try { Ghosts.OnDecoySpawned(firer, key, t, wd); } catch (System.Exception ex) { Duel.Log("~Ghost start failed: " + ex.Message); }
                 return;
             }
             if (!payload) OppFired++;
-            Duel.Log("Opponent fired torpedo #" + id + " (" + wd.weaponName + ")");
+            Duel.Log((Duel.Opps.Count > 1 ? firer.Label : "Opponent") + " fired torpedo #" + id + " (" + wd.weaponName + ")");
             bool heard = false;
             if (!payload) // dropped by a rocket far from the firer: no launch transient
             {
-                try { heard = LaunchTransient(Duel.Puppet, wd); }
+                try { heard = LaunchTransient(firer.Puppet, wd); }
                 catch (System.Exception ex) { Duel.Log("Launch transient check failed: " + ex.Message); }
             }
             // A new torpedo's map icon starts visible until the game's next sonar check (about 1 s): an unheard
@@ -202,33 +209,34 @@ namespace ColdWatersMP
             int id = -1; Incoming inc = null;
             foreach (KeyValuePair<int, Incoming> kv in _incoming) if (kv.Value.T == t) { id = kv.Key; inc = kv.Value; break; }
             if (inc == null) return;
+            string tag = Tag(inc.Firer, inc.Id);
 
             if (t.destroyMe && t.damageDealt == 0)
             {
                 // Flagged without hitting anything (mission teardown, noisemaker, ...): not a hit.
-                Duel.Log((inc.Decoy ? "~" : "") + "Opponent torpedo #" + id + " removed here without a hit");
+                Duel.Log((inc.Decoy ? "~" : "") + tag + " removed here without a hit");
                 Kill(id, false);
                 return;
             }
             if (t.destroyMe && Ambient.TookNeutralHit(t))
             {
-                Ambient.SendHit(id);
+                Ambient.SendHit(inc.Firer.Id, inc.Id);
                 Kill(id, true);
                 return;
             }
             if (t.destroyMe)
             {
                 // Compartment.OnTriggerEnter counted a hit on our sub (damageDealt) and applied damage.
-                int idCopy = id;
-                S.SendGame(G_TORP_HIT, w => w.Write(idCopy), true);
-                Duel.Log("Opponent torpedo #" + id + " hit us");
+                int firerId = inc.Firer.Id, torpId = inc.Id;
+                S.SendGame(G_TORP_HIT, w => { w.Write(firerId); w.Write(torpId); }, true);
+                Duel.Log(tag + " hit us");
                 OppHits++;
                 Kill(id, true);
                 return;
             }
             if (inc.EndAt > 0f && Time.time > inc.EndAt)
             {
-                Duel.Log((inc.Decoy ? "~" : "") + "Opponent torpedo #" + id + (inc.DroppedPayload ? " ended (carrier, payload was released)" : " ended (miss)"));
+                Duel.Log((inc.Decoy ? "~" : "") + tag + (inc.DroppedPayload ? " ended (carrier, payload was released)" : " ended (miss)"));
                 Kill(id, false);
                 return;
             }
@@ -247,7 +255,7 @@ namespace ColdWatersMP
                 int icon = t.tacMapTorpedoIcon.gameObject.activeInHierarchy ? 1 : 0;
                 if (icon != inc.IconState)
                 {
-                    Duel.Log("~Opponent torpedo #" + id + " map icon " + (icon == 1 ? "shown" : "hidden") + " at +" + (Time.time - inc.SpawnLocal).ToString("F1") + " s");
+                    Duel.Log("~" + Tag(inc.Firer, inc.Id) + " map icon " + (icon == 1 ? "shown" : "hidden") + " at +" + (Time.time - inc.SpawnLocal).ToString("F1") + " s");
                     inc.IconState = icon;
                     inc.IconChanges++;
                 }
@@ -363,13 +371,13 @@ namespace ColdWatersMP
             Duel.Log("Our damage " + (frac * 100f).ToString("F0") + "%" + (sinking ? ", SINKING" : ""));
         }
 
-        static void ApplyOpponentDamage(float frac, bool sinking)
+        static void ApplyOpponentDamage(Opponent o, float frac, bool sinking)
         {
-            Vessel p = Duel.Puppet;
+            Vessel p = o != null ? o.Puppet : null;
             if (p == null) return;
             p.damagesystem.shipCurrentDamagePoints = frac * p.damagesystem.shipTotalDamagePoints;
-            Duel.Log("Opponent damage " + (frac * 100f).ToString("F0") + "%" + (sinking ? ", SINKING" : ""));
-            if (sinking) Duel.OnOppSinking();
+            Duel.Log((Duel.Opps.Count > 1 ? o.Label : "Opponent") + " damage " + (frac * 100f).ToString("F0") + "%" + (sinking ? ", SINKING" : ""));
+            if (sinking) Duel.OnOppSinking(o);
             if (sinking && !p.isSinking)
             {
                 Compartment c = p.GetComponentInChildren<Compartment>();
@@ -391,30 +399,33 @@ namespace ColdWatersMP
 
         public static bool OnMessage(byte type, BinaryReader r)
         {
+            int from = S.LastSender;
             switch (type)
             {
                 case G_TORP_SPAWN:
                 {
                     int id = r.ReadInt32(); int wid = r.ReadInt32(); Vector3 p = ReadV3(r); Vector3 e = ReadV3(r); bool payload = r.ReadBoolean(); int carrierId = r.ReadInt32();
                     if (wid < 0 || wid >= UIFunctions.globaluifunctions.database.databaseweapondata.Length) { Duel.Log("Ignored a torpedo with an unknown weapon number " + wid); return true; }
+                    Opponent firer = Duel.InGameById(from);
                     Incoming carrier;
-                    if (carrierId > 0 && _incoming.TryGetValue(carrierId, out carrier))
+                    if (carrierId > 0 && _incoming.TryGetValue(Key(from, carrierId), out carrier))
                     {
                         carrier.DroppedPayload = true;
-                        Duel.Log("Opponent torpedo #" + carrierId + " released its payload");
-                        Kill(carrierId, false); // the payload takes over from here
+                        Duel.Log(Tag(carrier.Firer, carrierId) + " released its payload");
+                        Kill(Key(from, carrierId), false); // the payload takes over from here
                     }
-                    if (Duel.InDuel) SpawnPuppetTorpedo(id, wid, p, e, payload);
+                    if (Duel.InDuel && firer != null) SpawnPuppetTorpedo(firer, id, wid, p, e, payload);
                     return true;
                 }
                 case G_TORP_STATE:
                 {
-                    int id = r.ReadInt32(); float time = r.ReadSingle(); Vector3 p = ReadV3(r); Vector3 e = ReadV3(r); bool homing = r.ReadBoolean();
+                    int id = r.ReadInt32(); float time = r.ReadSingle(); Vector3 p = ReadV3(r); Vector3 e = ReadV3(r); int target = r.ReadInt32();
+                    bool homing = target == S.MyId;
                     Incoming inc;
-                    if (_incoming.TryGetValue(id, out inc) && time > inc.T1 && inc.EndAt < 0f)
+                    if (_incoming.TryGetValue(Key(from, id), out inc) && time > inc.T1 && inc.EndAt < 0f)
                     {
                         inc.Pos0 = inc.Pos1; inc.T0 = inc.T1; inc.Pos1 = p; inc.T1 = time; inc.Euler1 = e; inc.Local1 = Time.time; inc.Count++;
-                        if (homing && !inc.HomingLogged) { inc.HomingLogged = true; Duel.Log("Opponent torpedo #" + id + " is homing on us"); }
+                        if (homing && !inc.HomingLogged) { inc.HomingLogged = true; Duel.Log(Tag(inc.Firer, id) + " is homing on us"); }
                         if (homing) inc.LastHoming = Time.time;
                         inc.Homing = homing;
                     }
@@ -426,18 +437,33 @@ namespace ColdWatersMP
                     // Grace period: the firer's torpedo may end (proximity, impact) a moment before ours
                     // touches the hull here. Keep it running briefly so our collision can still count.
                     Incoming inc;
-                    if (_incoming.TryGetValue(id, out inc) && inc.EndAt < 0f) inc.EndAt = Time.time + 1.0f;
+                    if (_incoming.TryGetValue(Key(from, id), out inc) && inc.EndAt < 0f) inc.EndAt = Time.time + 1.0f;
                     return true;
                 }
                 case G_TORP_HIT:
                 {
-                    int id = r.ReadInt32();
-                    Torpedo t;
-                    Duel.Log("Our torpedo #" + id + " HIT the opponent");
-                    OwnHits++;
-                    Ghosts.OnOpponentHit();
-                    if (_own.TryGetValue(id, out t) && t != null) t.destroyMe = true; // explode here too
-                    _own.Remove(id);
+                    // From the player who was hit: (firer, torpedo number).
+                    int firerId = r.ReadInt32(); int id = r.ReadInt32();
+                    Opponent victim = Duel.InGameById(from);
+                    if (firerId == S.MyId)
+                    {
+                        Torpedo t;
+                        Duel.Log("Our torpedo #" + id + " HIT " + (Duel.Opps.Count > 1 && victim != null ? victim.Label : "the opponent"));
+                        OwnHits++;
+                        Ghosts.OnOpponentHit(victim);
+                        if (_own.TryGetValue(id, out t) && t != null) t.destroyMe = true; // explode here too
+                        _own.Remove(id);
+                    }
+                    else
+                    {
+                        // Someone else's torpedo hit a third player: explode our copy of it there.
+                        Incoming inc;
+                        if (_incoming.TryGetValue(Key(firerId, id), out inc))
+                        {
+                            Duel.Log(Tag(inc.Firer, id) + " hit " + (victim != null ? victim.Label : "player " + from));
+                            Kill(Key(firerId, id), true);
+                        }
+                    }
                     return true;
                 }
                 case G_NOISEMAKER:
@@ -464,11 +490,17 @@ namespace ColdWatersMP
                 case G_DAMAGE:
                 {
                     float f = r.ReadSingle(); bool sinking = r.ReadBoolean();
-                    ApplyOpponentDamage(f, sinking);
+                    ApplyOpponentDamage(Duel.InGameById(from), f, sinking);
                     return true;
                 }
             }
             return false;
+        }
+
+        /// <summary>A neutral took our copy of another player's torpedo (the host says so): explode it here.</summary>
+        public static void OtherTorpedoHitNeutral(int firerId, int id)
+        {
+            if (_incoming.ContainsKey(Key(firerId, id))) Kill(Key(firerId, id), true);
         }
 
         static void WriteV3(BinaryWriter w, Vector3 v) { w.Write(v.x); w.Write(v.y); w.Write(v.z); }
@@ -519,7 +551,7 @@ namespace ColdWatersMP
     {
         static bool Prefix(VesselAI __instance)
         {
-            return !(Duel.InDuel && ((Duel.Puppet != null && Duel.Puppet.vesselai == __instance) || Ghosts.IsGhostAI(__instance)));
+            return !(Duel.InDuel && (Duel.IsPuppetAI(__instance) || Ghosts.IsGhostAI(__instance)));
         }
     }
 
