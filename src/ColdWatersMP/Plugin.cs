@@ -146,6 +146,11 @@ namespace ColdWatersMP
                 if (_devKeys.Value && Input.GetKeyDown(KeyCode.F7)) Duel.DebugTeleportNearOpponent(_teleportNm.Value);
                 if (Input.GetKeyDown(KeyCode.F5)) Ghosts.ToggleMarkCurrent(); // tag the selected contact as DECOY
                 if (Input.GetKeyDown(KeyCode.F8)) { Duel.ReleaseHeldLoad("Ctrl+F8 pressed"); Duel.ReleaseStations("Ctrl+F8 pressed"); }
+                if (_devKeys.Value && Input.GetKeyDown(KeyCode.F10))
+                {
+                    PlayerInfo me = _session.Players.Find(p => p.Id == _session.MyId);
+                    if (me != null) { Log("~Ctrl+F10: switching own team"); _session.PickTeam(me.Id, 1 - me.Team); }
+                }
                 if (_devKeys.Value && Input.GetKeyDown(KeyCode.F11)) _session.SendChat("ping from " + _playerName.Value + " at " + Time.realtimeSinceStartup.ToString("F1") + "s");
             }
             try { _session.Update(); }
@@ -265,9 +270,45 @@ namespace ColdWatersMP
             GUILayout.Space(6);
         }
 
+        /// <summary>The players in the session by team. Everyone can switch their own team; the host can move anyone.</summary>
+        void PlayersSection()
+        {
+            if (_session.PlayerCount == 0) return;
+            GUILayout.Label("Players (" + _session.PlayerCount + " of " + Session.MaxPlayers + "):");
+            for (int team = 0; team < 2; team++)
+            {
+                GUILayout.BeginHorizontal();
+                GUILayout.Label(team == 0 ? "Team A" : "Team B", GUILayout.Width(110));
+                GUILayout.BeginVertical();
+                bool any = false;
+                foreach (PlayerInfo p in _session.Players.ToArray())
+                {
+                    if (p.Team != team) continue;
+                    any = true;
+                    GUILayout.BeginHorizontal();
+                    string who = p.Name + (p.Id == 0 ? " (host)" : "") + (p.Id == _session.MyId ? " (you)" : "")
+                               + (p.Id != 0 && _session.IsHost ? "  " + p.RttMs.ToString("F0") + " ms" : "");
+                    GUILayout.Label(who, GUILayout.Width(240));
+                    if ((p.Id == _session.MyId || _session.IsHost) && GUILayout.Button(team == 0 ? "to B" : "to A", GUILayout.Width(60)))
+                    {
+                        Log("~Team button: " + p.Name + " to " + (team == 0 ? "B" : "A"));
+                        _session.PickTeam(p.Id, 1 - team);
+                    }
+                    GUILayout.EndHorizontal();
+                }
+                if (!any) GUILayout.Label("-");
+                GUILayout.EndVertical();
+                GUILayout.EndHorizontal();
+            }
+            if (_session.PlayerCount > 2)
+                GUILayout.Label("Team battles are being built: with more than 2 players connected, missions start without multiplayer for now.");
+            GUILayout.Space(6);
+        }
+
         void SettingsWindow(int id)
         {
             ConnectionSection();
+            PlayersSection();
             if (!_session.IsHost)
             {
                 GUILayout.Label("The host picks the map and conditions.");

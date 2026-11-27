@@ -96,10 +96,24 @@ namespace ColdWatersMP
             }
         }
 
+        static int _lastPlayerCount;
+
         public static void Init(Session session, System.Action<string> log, float rangeNm)
         {
             Session = session; Log = log; RangeNm = rangeNm;
             session.GameMessage += OnGameMessage;
+            // Back to two players after a third left: the duel code starts over with the remaining opponent.
+            session.RosterChanged += delegate
+            {
+                int n = Session.PlayerCount;
+                if (n == 2 && _lastPlayerCount > 2 && Session.State == SessionState.Ready)
+                {
+                    OppClass = -1; OppClassName = "";
+                    if (_choiceMade) SendSubChoice();
+                    EnvSync.HostNewSeed();
+                }
+                _lastPlayerCount = n;
+            };
             session.ReadyChanged += delegate (bool ready)
             {
                 if (ready)
@@ -119,7 +133,8 @@ namespace ColdWatersMP
             };
         }
 
-        static bool Active { get { return Session != null && Session.State == SessionState.Ready; } }
+        /// <summary>A duel needs exactly two players. With more (team battles, being built), missions run without multiplayer.</summary>
+        static bool Active { get { return Session != null && Session.State == SessionState.Ready && Session.PlayerCount == 2; } }
 
         // ---------- sub choice ----------
 
@@ -706,6 +721,7 @@ namespace ColdWatersMP
 
         static void OnGameMessage(byte type, BinaryReader r)
         {
+            if (Session.PlayerCount > 2) return; // the duel code knows one opponent; team battles get their own handling
             if (Weapons.OnMessage(type, r)) return;
             if (EnvSync.OnMessage(type, r)) return;
             if (Match.OnMessage(type, r)) return;
