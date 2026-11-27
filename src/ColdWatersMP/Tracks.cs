@@ -35,9 +35,10 @@ namespace ColdWatersMP
         static SensorManager SM { get { return UIFunctions.globaluifunctions.playerfunctions.sensormanager; } }
 
         // A dropped track leaves a faded "S1 Barbel?" marker at its last known position (Raf, 26 Nov), until mission end.
-        // Ref: the slot's own marker. TacticalMap.TacticalMapZoom rescales the game's markers on every zoom; the copy
-        // follows Ref's scale, or it grew huge when zoomed in (seen 27 Nov: "S8 Los Angeles?" across the map).
-        class LastKnown { public GameObject Go; public Transform Ref; public float X, Z; }
+        // TacticalMap.TacticalMapZoom doesn't scale a marker as a whole: on every zoom it sets each mapContact's label
+        // scale (textMinMaxSize) and icon size (iconSize * orthFactor). The copy keeps the sizes it was made with, so it
+        // was huge or tiny after a zoom (Raf, 27 Nov). It follows the slot's own marker (Ref), which the game keeps updated.
+        class LastKnown { public GameObject Go; public MapContact Ref; public Transform Txt; public RectTransform Icon; public float X, Z; }
         static readonly List<LastKnown> _lastKnown = new List<LastKnown>();
         const int MaxLastKnown = 12;
 
@@ -69,7 +70,7 @@ namespace ColdWatersMP
             if (txt != null) { txt.text = label + "?"; Color col = txt.color; col.a = 0.45f; txt.color = col; }
             if (icon != null) { Color col = icon.color; col.a = 0.35f; icon.color = col; }
             go.SetActive(true);
-            _lastKnown.Add(new LastKnown { Go = go, Ref = mc.transform, X = lp.x / tm.zoomFactor, Z = lp.y / tm.zoomFactor });
+            _lastKnown.Add(new LastKnown { Go = go, Ref = mc, Txt = txt != null ? txt.transform : null, Icon = icon != null ? icon.rectTransform : null, X = lp.x / tm.zoomFactor, Z = lp.y / tm.zoomFactor });
             if (_lastKnown.Count > MaxLastKnown) { if (_lastKnown[0].Go != null) Object.Destroy(_lastKnown[0].Go); _lastKnown.RemoveAt(0); }
             PlaceLastKnown();
             Duel.Log("~Last known marker \"" + label + "?\" left at map " + lp.x.ToString("F0") + "," + lp.y.ToString("F0") + " (zoom " + tm.zoomFactor.ToString("F3") + ", contact marker was " + (wasShown ? "shown" : "hidden") + ")");
@@ -86,7 +87,9 @@ namespace ColdWatersMP
                 if (lk.Go != null)
                 {
                     lk.Go.transform.localPosition = new Vector3(lk.X * z, lk.Z * z, -5f);
-                    if (lk.Ref != null && lk.Go.transform.localScale != lk.Ref.localScale) lk.Go.transform.localScale = lk.Ref.localScale;
+                    if (lk.Ref == null) continue;
+                    if (lk.Txt != null && lk.Ref.contactText != null) lk.Txt.localScale = lk.Ref.contactText.transform.localScale;
+                    if (lk.Icon != null && lk.Ref.shipDisplayIcon != null) lk.Icon.sizeDelta = lk.Ref.shipDisplayIcon.rectTransform.sizeDelta;
                 }
         }
 
