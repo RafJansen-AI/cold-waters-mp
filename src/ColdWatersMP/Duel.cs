@@ -367,6 +367,31 @@ namespace ColdWatersMP
 
         static int EraDistance(int a, int b) { return a < 0 || b < 0 ? 1000 : System.Math.Abs(a - b); }
 
+        /// <summary>Side colours in a duel (Raf, 27 Nov): NATO in DotMod's HUD blue, WP/PLAN in the vanilla HUD red.</summary>
+        public static readonly Color NatoBlue = new Color(74f / 255f, 163f / 255f, 201f / 255f, 1f);
+        public static readonly Color WpRed = new Color(1f, 136f / 255f, 154f / 255f, 1f);
+        public static Color SideColor(string prefab)
+        {
+            string navy = prefab != null ? prefab.Split('_')[0] : "";
+            return (navy == "wp" || navy == "plan") ? WpRed : NatoBlue;
+        }
+
+        static bool _oppColorLogged;
+
+        /// <summary>The HUD's EnemyColor (navyColors[1]) is what the game draws the opponent's torpedoes, noisemakers,
+        /// knuckles, wake bubbles and towed decoys in (DotMod: blue for everyone). In a duel it is the opponent's side
+        /// colour, so they match the opponent's contact. BuildHUD refills the table on every HUD build, so check each frame.</summary>
+        static void ApplyOpponentColor()
+        {
+            if (Puppet == null || Puppet.databaseshipdata == null) return;
+            TacticalMap tm = UIFunctions.globaluifunctions.playerfunctions.sensormanager.tacticalmap;
+            if (tm == null || tm.navyColors == null || tm.navyColors.Length < 2) return;
+            Color c = SideColor(Puppet.databaseshipdata.shipPrefabName);
+            if (tm.navyColors[1] == c) return;
+            tm.navyColors[1] = c;
+            if (!_oppColorLogged) { _oppColorLogged = true; Log("~Opponent colour on the map: " + (c == WpRed ? "WP red" : "NATO blue")); }
+        }
+
         static void SetIdBook(int oppCls)
         {
             try
@@ -586,6 +611,7 @@ namespace ColdWatersMP
             Weapons.Reset();
             Ghosts.Reset();
             Tracks.Reset();
+            _oppColorLogged = false;
             Ambient.Reset();
         }
 
@@ -608,6 +634,7 @@ namespace ColdWatersMP
             DrivePuppet();
             try { Ghosts.Update(); } catch (System.Exception ex) { Log("~Ghost update failed: " + ex); }
             try { Tracks.Update(); } catch (System.Exception ex) { Log("~Track update failed: " + ex.Message); }
+            try { ApplyOpponentColor(); } catch (System.Exception) { }
             try { Ambient.Update(); } catch (System.Exception ex) { Log("~Neutral update failed: " + ex.Message); }
             Weapons.Update();
         }
@@ -881,9 +908,6 @@ namespace ColdWatersMP
     [HarmonyPatch(typeof(SensorManager), "GetContactColor")]
     static class Patch_GetContactColor
     {
-        static readonly Color NatoBlue = new Color(74f / 255f, 163f / 255f, 201f / 255f, 1f); // DotMod HUD EnemyColor
-        static readonly Color WpRed = new Color(1f, 136f / 255f, 154f / 255f, 1f);             // vanilla HUD EnemyColor
-
         static void Postfix(SensorManager __instance, int i, ref Color __result)
         {
             try
@@ -895,8 +919,7 @@ namespace ColdWatersMP
                 if (__instance.classifiedByPlayer == null || i < 0 || i >= __instance.classifiedByPlayer.Length || !__instance.classifiedByPlayer[i]) { __result = nc[2]; return; }
                 DatabaseShipData d = UIFunctions.globaluifunctions.database.databaseshipdata[__instance.classifiedByPlayerAsClass[i]];
                 if (d.shipType == "BIOLOGIC" || Database.GetIsCivilian(d.shipPrefabName)) return; // the game's (green)
-                string navy = d.shipPrefabName.Split('_')[0];
-                __result = (navy == "wp" || navy == "plan") ? WpRed : NatoBlue;
+                __result = Duel.SideColor(d.shipPrefabName);
             }
             catch (System.Exception) { }
         }
