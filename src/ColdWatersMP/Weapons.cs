@@ -11,7 +11,7 @@ namespace ColdWatersMP
 {
     public static class Weapons
     {
-        public const byte G_TORP_SPAWN = 5, G_TORP_STATE = 6, G_TORP_END = 7, G_TORP_HIT = 8, G_DAMAGE = 9, G_NOISEMAKER = 11, G_KNUCKLE = 14;
+        public const byte G_TORP_SPAWN = 5, G_TORP_STATE = 6, G_TORP_END = 7, G_TORP_HIT = 8, G_DAMAGE = 9, G_NOISEMAKER = 11, G_KNUCKLE = 14, G_DECAL = 20;
 
         class Incoming
         {
@@ -493,8 +493,52 @@ namespace ColdWatersMP
                     ApplyOpponentDamage(Duel.InGameById(from), f, sinking);
                     return true;
                 }
+                case G_DECAL:
+                {
+                    string comp = r.ReadString(); bool destroyed = r.ReadBoolean(); int decal = r.ReadInt32();
+                    if (Duel.InDuel) ApplyOpponentDecal(Duel.InGameById(from), comp, destroyed, decal);
+                    return true;
+                }
             }
             return false;
+        }
+
+        // ---------- hull damage on the outside (holes) ----------
+        // Compartment.ApplyDamageDecal puts a random hole decal on the hit compartment, only in the game of the sub that
+        // was hit. That game picks the decal, applies it and tells the others, who put the same one on its puppet.
+
+        internal static bool ApplyingRemoteDecal;
+
+        /// <summary>ApplyDamageDecal prefix on our own sub: choose the decal here so it can be sent.</summary>
+        public static void BeforeOwnDecal(Compartment c, bool destroyed, ref int placedDecalID)
+        {
+            if (!Active || ApplyingRemoteDecal || c == null || c.activeVessel == null || !c.activeVessel.playercontrolled) return;
+            if (c.destroyedDecalPlaced || placedDecalID != -1) return; // nothing new (or a campaign reload)
+            Material[] mats = destroyed ? UIFunctions.globaluifunctions.database.destroyedDecals : UIFunctions.globaluifunctions.database.damageDecals;
+            if (mats == null || mats.Length == 0) return;
+            int id = Random.Range(0, mats.Length);
+            placedDecalID = id;
+            string comp = c.name;
+            S.SendGame(G_DECAL, w => { w.Write(comp); w.Write(destroyed); w.Write(id); }, true);
+            Duel.Log("~Hull damage decal on our compartment " + comp + (destroyed ? " (destroyed)" : "") + ", sent");
+        }
+
+        static void ApplyOpponentDecal(Opponent o, string comp, bool destroyed, int decal)
+        {
+            if (o == null || o.Puppet == null) return;
+            Material[] mats = destroyed ? UIFunctions.globaluifunctions.database.destroyedDecals : UIFunctions.globaluifunctions.database.damageDecals;
+            if (mats == null || decal < 0 || decal >= mats.Length) return;
+            foreach (Compartment c in o.Puppet.GetComponentsInChildren<Compartment>(true))
+            {
+                if (c == null || c.name != comp) continue;
+                ApplyingRemoteDecal = true;
+                try { c.ApplyDamageDecal(destroyed, decal); }
+                catch (System.Exception ex) { Duel.Log("~Hull damage decal failed: " + ex.Message); }
+                finally { ApplyingRemoteDecal = false; }
+                Duel.Log("~Hull damage decal on " + (Duel.Opps.Count > 1 ? o.Label + "'s" : "the opponent's") + " compartment " + comp + (destroyed ? " (destroyed)" : ""));
+                return;
+            }
+            Duel.Log("~Hull damage decal: no compartment " + comp + " on the puppet");
         }
 
         /// <summary>A neutral took our copy of another player's torpedo (the host says so): explode it here.</summary>
@@ -634,6 +678,20 @@ namespace ColdWatersMP
             if (Ambient.IsNeutral(__instance.activeVessel)) return Ambient.AllowHit(__instance, otherObject); // the host decides
             if (!Duel.IsPuppet(__instance.activeVessel)) return true;
             return otherObject == null || otherObject.GetComponent<Torpedo>() == null;
+        }
+    }
+}
+
+namespace ColdWatersMP
+{
+    /// <summary>Hull holes: send the ones on our own sub to the other players (Weapons.BeforeOwnDecal).</summary>
+    [HarmonyPatch(typeof(Compartment), "ApplyDamageDecal")]
+    static class Patch_ApplyDamageDecal
+    {
+        static void Prefix(Compartment __instance, bool destroyed, ref int placedDecalID)
+        {
+            try { Weapons.BeforeOwnDecal(__instance, destroyed, ref placedDecalID); }
+            catch (System.Exception ex) { Duel.Log("~Hull damage decal send failed: " + ex.Message); }
         }
     }
 }
