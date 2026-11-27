@@ -40,10 +40,11 @@ namespace ColdWatersMP
         // contact within BearingLimit of its bearing revives the track (name, classification, the game's "regained
         // contact"), however long ago it was dropped: the player decides by keeping or deleting the marker.
         // Map zoom only changes the camera; the game resizes hazard icons and contact labels on zoom (ScaleHazards,
-        // TacticalMapZoom), so the label copies a live contact label's scale each frame.
+        // TacticalMapZoom). The label is a copy of the contact's own map marker with its icon hidden (a label inside the
+        // nav marker came out tiny and on top of the cross, Raf 27 Nov), and takes the slot label's scale each frame.
         class LastKnown
         {
-            public GameObject Marker; public Transform Label;
+            public GameObject Marker, Holder; public Transform Label, RefLabel;
             public string Name, Text, TextShort; public bool Classified; public int ClassAs = -1, Slot = -1;
             public float X, Z;
         }
@@ -52,7 +53,8 @@ namespace ColdWatersMP
         public static void Reset()
         {
             _lostAt.Clear(); _lastBrg.Clear(); _seen.Clear(); _thresholdsLogged = false;
-            _lastKnown.Clear(); // the markers are the game's nav markers: its own mission cleanup removes them
+            foreach (LastKnown lk in _lastKnown) if (lk.Holder != null) Object.Destroy(lk.Holder);
+            _lastKnown.Clear(); // the crosses are the game's nav markers: its own mission cleanup removes them
         }
 
         /// <summary>Place a nav marker at the dropped contact's map position, faded in its colour, with a "name?" label.</summary>
@@ -79,17 +81,25 @@ namespace ColdWatersMP
             lk.Marker = tm.navMarkers[free];
             if (lk.Marker == null) { Duel.Log("~Last known marker for " + lk.Text + " not placed"); return; }
             lk.Marker.name = "CWMP last known " + lk.Text;
-            if (mc.contactText != null)
-            {
-                GameObject t = (GameObject)Object.Instantiate(mc.contactText.gameObject);
-                t.transform.SetParent(lk.Marker.transform, false);
-                t.transform.localPosition = mc.contactText.transform.localPosition - (mc.shipDisplayIcon != null ? mc.shipDisplayIcon.transform.localPosition : Vector3.zero);
-                t.transform.localRotation = Quaternion.identity;
-                Text txt = t.GetComponent<Text>();
-                if (txt != null) { txt.text = lk.Text + "?"; txt.raycastTarget = false; Color tc = txt.color; tc.a = 0.6f; txt.color = tc; }
-                t.SetActive(true);
-                lk.Label = t.transform;
-            }
+            // The label: a copy of the contact's map marker (its layout and font), icon hidden, at the cross's position.
+            GameObject h = (GameObject)Object.Instantiate(mc.gameObject);
+            h.transform.SetParent(mc.transform.parent, false);
+            h.transform.localRotation = mc.transform.localRotation;
+            h.transform.localScale = mc.transform.localScale;
+            h.transform.localPosition = new Vector3(lk.X * tm.zoomFactor, lk.Z * tm.zoomFactor, -5f);
+            h.name = "CWMP last known label " + lk.Text;
+            MapContact hc = h.GetComponent<MapContact>();
+            Text txt = hc != null && hc.contactText != null ? hc.contactText : h.GetComponentInChildren<Text>(true);
+            Image icon = hc != null ? hc.shipDisplayIcon : null;
+            if (hc != null) Object.Destroy(hc);
+            foreach (Button b in h.GetComponentsInChildren<Button>(true)) Object.Destroy(b);
+            foreach (LineRenderer l in h.GetComponentsInChildren<LineRenderer>(true)) l.enabled = false;
+            foreach (Graphic g in h.GetComponentsInChildren<Graphic>(true)) if (g != txt) g.enabled = false; // icon, trail dots: the cross stands in
+            if (icon != null) icon.enabled = false;
+            if (txt != null) { txt.text = lk.Text + "?"; txt.raycastTarget = false; Color tc = txt.color; tc.a = 0.6f; txt.color = tc; lk.Label = txt.transform; }
+            h.SetActive(true);
+            lk.Holder = h;
+            lk.RefLabel = mc.contactText != null ? mc.contactText.transform : null;
             _lastKnown.Add(lk);
             Duel.Log("~Last known marker \"" + lk.Text + "?\" left at map " + lp.x.ToString("F0") + "," + lp.y.ToString("F0") + " (nav marker " + (free + 1) + " of " + tm.navMarkers.Length + ")");
         }
@@ -98,14 +108,17 @@ namespace ColdWatersMP
         static void UpdateLastKnown()
         {
             if (_lastKnown.Count == 0) return;
-            TacticalMap tm = SM.tacticalmap;
-            Transform refText = null;
-            if (tm != null && tm.playerMapContact != null && tm.playerMapContact.contactText != null) refText = tm.playerMapContact.contactText.transform;
             for (int k = _lastKnown.Count - 1; k >= 0; k--)
             {
                 LastKnown lk = _lastKnown[k];
-                if (lk.Marker == null) { Duel.Log("~Last known marker \"" + lk.Text + "?\" removed by the player"); _lastKnown.RemoveAt(k); continue; }
-                if (lk.Label != null && refText != null) lk.Label.localScale = refText.localScale;
+                if (lk.Marker == null)
+                {
+                    Duel.Log("~Last known marker \"" + lk.Text + "?\" removed by the player");
+                    if (lk.Holder != null) Object.Destroy(lk.Holder);
+                    _lastKnown.RemoveAt(k); continue;
+                }
+                // TacticalMapZoom sets every mapContact label's scale on zoom, shown or hidden: follow the slot's label
+                if (lk.Label != null && lk.RefLabel != null) lk.Label.localScale = lk.RefLabel.localScale;
             }
         }
 
@@ -149,6 +162,7 @@ namespace ColdWatersMP
                 CopySlot(sm.solutionRangeErrors, lk.Slot, to);
             }
             if (lk.Marker != null) Object.Destroy(lk.Marker);
+            if (lk.Holder != null) Object.Destroy(lk.Holder);
             _lastKnown.Remove(lk);
             try { if (lk.Classified) SetContactName.Invoke(sm, new object[] { to }); }
             catch (System.Exception ex) { Duel.Log("~Track name refresh failed: " + ex.Message); }
