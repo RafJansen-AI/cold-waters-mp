@@ -35,7 +35,9 @@ namespace ColdWatersMP
         static SensorManager SM { get { return UIFunctions.globaluifunctions.playerfunctions.sensormanager; } }
 
         // A dropped track leaves a faded "S1 Barbel?" marker at its last known position (Raf, 26 Nov), until mission end.
-        class LastKnown { public GameObject Go; public float X, Z; }
+        // Ref: the slot's own marker. TacticalMap.TacticalMapZoom rescales the game's markers on every zoom; the copy
+        // follows Ref's scale, or it grew huge when zoomed in (seen 27 Nov: "S8 Los Angeles?" across the map).
+        class LastKnown { public GameObject Go; public Transform Ref; public float X, Z; }
         static readonly List<LastKnown> _lastKnown = new List<LastKnown>();
         const int MaxLastKnown = 12;
 
@@ -67,7 +69,7 @@ namespace ColdWatersMP
             if (txt != null) { txt.text = label + "?"; Color col = txt.color; col.a = 0.45f; txt.color = col; }
             if (icon != null) { Color col = icon.color; col.a = 0.35f; icon.color = col; }
             go.SetActive(true);
-            _lastKnown.Add(new LastKnown { Go = go, X = lp.x / tm.zoomFactor, Z = lp.y / tm.zoomFactor });
+            _lastKnown.Add(new LastKnown { Go = go, Ref = mc.transform, X = lp.x / tm.zoomFactor, Z = lp.y / tm.zoomFactor });
             if (_lastKnown.Count > MaxLastKnown) { if (_lastKnown[0].Go != null) Object.Destroy(_lastKnown[0].Go); _lastKnown.RemoveAt(0); }
             PlaceLastKnown();
             Duel.Log("~Last known marker \"" + label + "?\" left at map " + lp.x.ToString("F0") + "," + lp.y.ToString("F0") + " (zoom " + tm.zoomFactor.ToString("F3") + ", contact marker was " + (wasShown ? "shown" : "hidden") + ")");
@@ -81,7 +83,11 @@ namespace ColdWatersMP
             if (tm == null) return;
             float z = tm.zoomFactor;
             foreach (LastKnown lk in _lastKnown)
-                if (lk.Go != null) lk.Go.transform.localPosition = new Vector3(lk.X * z, lk.Z * z, -5f);
+                if (lk.Go != null)
+                {
+                    lk.Go.transform.localPosition = new Vector3(lk.X * z, lk.Z * z, -5f);
+                    if (lk.Ref != null && lk.Go.transform.localScale != lk.Ref.localScale) lk.Go.transform.localScale = lk.Ref.localScale;
+                }
         }
 
         public static bool HasName(int i)
@@ -213,6 +219,11 @@ namespace ColdWatersMP
             if (sm.initialDetectedByPlayer != null) sm.initialDetectedByPlayer[to] = true;
             if (sm.classifiedByPlayer != null) sm.classifiedByPlayer[to] = sm.classifiedByPlayer[from];
             if (sm.classifiedByPlayerAsClass != null) sm.classifiedByPlayerAsClass[to] = sm.classifiedByPlayerAsClass[from];
+            // The track's solution goes with it: a regained real sub keeps its (decayed) solution, so a continued track
+            // starting from the new slot's own few percent was a tell (seen 27 Nov: 4% where the old track had 74%).
+            float carried = CopySlot(sm.solutionQualityOfContacts, from, to);
+            CopySlot(sm.timeTrackingContact, from, to);
+            CopySlot(sm.solutionRangeErrors, from, to);
             if (to < mcs.Length && from < mcs.Length && mcs[to] != null && mcs[from] != null)
             {
                 mcs[to].contactText.text = mcs[from].contactText.text;
@@ -227,7 +238,14 @@ namespace ColdWatersMP
             _lostAt.Remove(from); _lastBrg.Remove(from);
             try { if (sm.classifiedByPlayer != null && sm.classifiedByPlayer[to]) SetContactName.Invoke(sm, new object[] { to }); }
             catch (System.Exception ex) { Duel.Log("~Track name refresh failed: " + ex.Message); }
-            Duel.Log("~Track " + name + " continues on slot " + to + " (was slot " + from + ", " + diff.ToString("F0") + " deg from its last bearing)");
+            Duel.Log("~Track " + name + " continues on slot " + to + " (was slot " + from + ", " + diff.ToString("F0") + " deg from its last bearing, solution " + carried.ToString("F0") + "%)");
+        }
+
+        static float CopySlot(float[] a, int from, int to)
+        {
+            if (a == null || from < 0 || to < 0 || from >= a.Length || to >= a.Length) return float.NaN;
+            a[to] = a[from];
+            return a[to];
         }
 
         /// <summary>For the 10 s sonar diagnostics: every opponent-side slot that is named or audible.</summary>
