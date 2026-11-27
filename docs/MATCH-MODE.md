@@ -100,9 +100,45 @@ Sonar of the 1984 front-line boats (from `sensors/01_SONAR`):
 | Virginia ('04) | BQQ-10 | 34 / 46 | | 54 |
 
 So in the files, NATO's sonar edge is not in the 1984 hull sonars (identical numbers) but in towed arrays (many
-Soviet boats have none, Victor III/Sierra's is weaker) and in the post-1999 NATO sets. Not yet checked: how the game
-turns these numbers into detection, and the per-frequency noise signatures (`vessels/signature`), which may favour
-NATO further.
+Soviet boats have none, Victor III/Sierra's is weaker) and in the post-1999 NATO sets.
+
+### How passive detection works in the game
+
+Read from `SensorManager.CheckSingleSonar`, `GetVesselNoiseLevel`, `GetVesselOwnNoiseLevel`, `GetArrayBonus` and
+the config (`dotmod/config.txt`, `[Acoustics & Weather]`). All values in dB.
+
+- **Target noise** = 92.8 + SelfNoise / 3.2 + target speed in knots (+20 cavitating, +up to 10 when damaged).
+  The 3.2 is `PassiveCompressionFactor`: **self-noise differences count only a third**. Akula (115) vs Virginia
+  (105) is 3.1 dB, not 10.
+- **Listener's own noise** = sea ambient (75 + 3 per sea state + rain) + the listener's own speed in knots. The
+  listener's SelfNoise does not count, nor does the sonar's "noise per knot".
+- **Loss** = 20 log10(range in m) + 0.0008 x range in m, minus layer, surface duct and convergence zone bonuses.
+- **Signal** = target noise - (loss + own noise - **hull sonar sensitivity**) + towed-array bonus. Detected above
+  10 (`DetectionThreshold`), kept above 1. Contacts in the baffles get -300 (never heard).
+- **Sonar sensitivity counts in full**, so 6 points of sensitivity weigh as much as 19 points of SelfNoise.
+- **Towed-array bonus** = towed sensitivity - hull sensitivity (LA and Akula +8, Victor III/Sierra +4,
+  Seawolf/Yasen +14). Only when deployed, not within 7.5 deg of the bow line, and it depends on own speed: grows
+  from 0 at 1 kn to full at 5 kn, then drops 10% per knot, zero at 15 kn. 5 kn is the sweet spot.
+- **Anechoic coating does nothing for passive detection.** Its only effect: an active-homing torpedo acquires an
+  anechoic sub at half the range (`Torpedo.CheckWithinSensorAngles`, about 75% sure of that reading).
+- The per-frequency signatures (`vessels/signature`) are used for the sonar display and classification; they are not
+  in the detection sum.
+
+Passive detection range in nm, both subs at 5 kn, listener's array deployed, sea state 3, no layer or
+convergence zone (computed with the formula above, not tested in game):
+
+| Listener \ target | LA '84 | Virginia | Akula | Victor III | Alfa | Kilo |
+|---|---|---|---|---|---|---|
+| Los Angeles '84 (40 + 8) | 3.8 | 3.1 | 3.8 | 4.3 | 5.4 | 3.3 |
+| Virginia, Seawolf, Trafalgar '04 (54) | 5.6 | 4.7 | 5.6 | 6.2 | 7.5 | 4.9 |
+| Akula (40 + 8) | 3.8 | 3.1 | 3.8 | 4.3 | 5.4 | 3.3 |
+| Victor III, Sierra (40 + 4) | 2.8 | 2.2 | 2.8 | 3.2 | 4.2 | 2.4 |
+| Alfa (37, no array) | 1.6 | 1.2 | 1.6 | 1.8 | 2.5 | 1.3 |
+| Kilo (38, no array) | 1.7 | 1.3 | 1.7 | 2.0 | 2.7 | 1.4 |
+
+Speed matters even more: an LA hears an Akula at 3.8 nm; at 7 nm if the Akula speeds up to 15 kn; at 0.8 nm if the
+LA itself runs at 15 kn (more own noise, array useless). Without its array the LA hears the Akula at 2.0 nm. Sea
+state 6 halves everything.
 
 Rocket-launched torpedoes: Soviet only in practice. RPK-6 (Akula, Sierra, Victor II/III, Alfa, Mike, Yasen, Oscar,
 Typhoon, Delta, Papa, Charlie II): 6,000-55,000 yd, drops a UMGT-1 (41 kn, 275 warhead, 1,650 yd seeker) on the
@@ -118,8 +154,12 @@ sub carries it.
   outranges USET-80 by almost 3x and is faster, wire-guided and heavier, and most NATO boats tow an array. Against
   that, a big Soviet hull needs more hits, Soviet boats fire and reload faster, and the RPK-6 puts a torpedo on a
   distant contact within minutes (a long-range snap shot NATO has no answer to, but its small torpedo has no wire).
-- **Detection probably matters most.** Whoever hears first chooses when the fight starts. The rating should weigh
-  detection (hull sonar, towed array, baffles) about as high as stealth, and both above firepower.
+- **Detection matters most, and NATO mostly has it.** Whoever hears first chooses when the fight starts. The 1984
+  LA and Akula are an even match (both hear each other at 3.8 nm), but an LA out-hears a Victor III or Sierra by 35%
+  and an Alfa, Kilo or older boat without an array by more than 2x. Post-1999 NATO boats (Virginia, Seawolf,
+  2004 Trafalgar) hear 50% further than an Akula; the Yasen is the only Soviet boat at that level.
+- **Stealth is worth less than it looks.** Because of the 3.2 compression, a sub that is 10 dB quieter gains only
+  about as much as one with 3 points more sonar sensitivity. Anechoic coating gives no passive stealth at all.
 - **Hard counters exist**: a Mike sits below the depth limit of every torpedo except ADCAP; an Alfa or Papa outruns
   Mk37s and SET-65s; a 1960s Mk37 at 26 kn cannot catch a 1980s SSN. Pure stat sums would miss these, so pairings
   need a check, not just a number.
@@ -129,11 +169,13 @@ sub carries it.
   toothless; fine in team games as an objective holder, odd in a 1v1.
 
 ### Proposal: battle rating (BR)
-1. **Computed starting value** per sub class, from five scores (each normalised 0-1 across all subs):
-   stealth (self noise, anechoic), detection (hull and towed sonar, baffles), weapon (best loaded anti-sub torpedo:
-   speed, range, seeker, wire, warhead), firepower (tubes, wires, reload, torpedoes carried) and survival (hull from
-   displacement, speed, depth margin against the enemy's torpedo). Weighted sum, scaled to a BR of 1.0-6.0 in 0.3
-   steps. Stealth and detection weigh most, then weapon (including rocket torpedoes).
+1. **Computed starting value** per sub class. The sensor part can use the game's own sum instead of guessed weights:
+   **acoustic edge = (hull sensitivity + array bonus) - SelfNoise / 3.2**, in dB. Every 1 dB of that is worth the
+   same in detection range, for hearing and for being heard. Add scores (each normalised 0-1 across all subs) for
+   weapon (best loaded anti-sub torpedo: speed, range, seeker, wire, warhead, plus rocket torpedo), firepower (tubes,
+   wires, reload, torpedoes carried) and survival (hull from displacement, speed, depth margin against the enemy's
+   torpedo, anechoic against active-homing torpedoes). Weighted sum, scaled to a BR of 1.0-6.0 in 0.3 steps, with
+   the acoustic edge weighted most.
 2. **Hand-tuned overrides** in a config file (`cwmp-balance.cfg`, shipped with the mod, same on both sides because
    the handshake already compares data): `usn_84_ssn_los_angeles = 4.3`, and so on. The computed value is only the
    start; the file is what counts.
