@@ -243,8 +243,9 @@ Host Udaloy (`wp_84_bpk_udaloy_pl`) vs client Los Angeles '84, testing grounds, 
 with ships (`Duel.cs`).
 - Vessel list: 111 vessels (subs + ships). The client's puppet was `wp_84_bpk_udaloy_ai`, AI off; no AI helicopter
   appeared. ID book: 57 Soviet/Chinese subs and ships; the LA classified the contact as "S1 Udaloy".
-- Noise: the client heard the ship at 150.9 dB = the player Udaloy's own noise (170 self noise), not the twin's
-  (180). Signals at 3.1 kyd: sub hears ship 37.7, ship hears sub 20.5 (17 dB apart, as computed).
+- Noise: the client heard the ship at 150.9 dB, the same as the host's own reading (Udaloy: 170 self noise, and its
+  twin has 170 too, so the noise correction was not exercised; it matters for e.g. Spruance 160 vs twin 175).
+  Signals at 3.1 kyd: sub hears ship 37.7, ship hears sub 20.5 (17 dB apart, as computed).
 - LA's Mk48 (launch transient heard by the ship) ran past, came round and hit: Udaloy 94% damage from one torpedo
   (the x2.2 rule), hull decal shown on the puppet. The Udaloy's SET-65 (transient heard by the sub) hit the LA: 78%.
 - 0 exceptions on both sides.
