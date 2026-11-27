@@ -92,7 +92,9 @@ namespace ColdWatersMP
                 dc.isDepthExploded = depthEx; dc.isContactExploded = contactEx; dc.isNavalShell = shell;
                 dc.whichNavy = 1;
                 dc.targetPosition = target;
-                dc.Start();
+                _copies.Add(dc.GetInstanceID());
+                _startingCopy = true;
+                try { dc.Start(); } finally { _startingCopy = false; }
                 dc.dcExplodeDepth = fuse; // Start draws its own random fuse depth; use the firer's
                 dc.FixedUpdate();
                 OppFired++;
@@ -111,7 +113,14 @@ namespace ColdWatersMP
                 || c.GetComponentInParent<Projectile_DepthCharge>() != null;
         }
 
-        public static void Reset() { _ownFiring = false; OwnFired = 0; OppFired = 0; OwnMortars = 0; OppMortars = 0; }
+        /// <summary>Copies we started by hand. Unity calls Start once more on a fresh object (next frame), and for an
+        /// enemy-side round Start sets the fuse to the PLAYER's own depth: copies blew up at the target's exact depth, or
+        /// at a ship's 2-17 ft (3-player test 27 Nov). That second Start is skipped.</summary>
+        static readonly System.Collections.Generic.HashSet<int> _copies = new System.Collections.Generic.HashSet<int>();
+        static bool _startingCopy;
+        public static bool SkipStart(Projectile_DepthCharge dc) { return dc != null && !_startingCopy && _copies.Contains(dc.GetInstanceID()); }
+
+        public static void Reset() { _copies.Clear(); _ownFiring = false; OwnFired = 0; OppFired = 0; OwnMortars = 0; OppMortars = 0; }
     }
 
     [HarmonyPatch(typeof(Player_RBU), "FireRBUMortar")]
@@ -130,7 +139,7 @@ namespace ColdWatersMP
 
     /// <summary>Diagnostics: where each mortar round blows up, against our vessel and the opponents' puppets.</summary>
     [HarmonyPatch(typeof(Projectile_DepthCharge), "ExplodeDepthCharge")]
-    static class Patch_DepthChargeExplode
+    internal static class Patch_DepthChargeExplode
     {
         static int _logged;
         static void Prefix(Projectile_DepthCharge __instance)
@@ -149,7 +158,7 @@ namespace ColdWatersMP
             catch (System.Exception) { }
         }
 
-        static string Describe(Vector3 p, Vessel v)
+        internal static string Describe(Vector3 p, Vessel v)
         {
             Vector3 d = v.transform.position - p;
             float depth = (1000f - v.transform.position.y) * GameDataManager.unitsToFeet;
@@ -160,6 +169,29 @@ namespace ColdWatersMP
     [HarmonyPatch(typeof(Projectile_DepthCharge), "Start")]
     static class Patch_DepthChargeStart
     {
+        static bool Prefix(Projectile_DepthCharge __instance) { return !Rounds.SkipStart(__instance); }
         static void Postfix(Projectile_DepthCharge __instance) { Rounds.OnStarted(__instance); }
+    }
+
+    /// <summary>Diagnostics: where each gun shell ends (hit or splash), ours and copies, against every vessel.</summary>
+    [HarmonyPatch(typeof(Projectile_DepthCharge), "DestroyMe")]
+    static class Patch_DepthChargeDestroyMe
+    {
+        static int _logged;
+        static void Prefix(Projectile_DepthCharge __instance)
+        {
+            if (!Duel.InDuel || __instance == null || !__instance.isNavalShell || _logged > 60) return;
+            try
+            {
+                _logged++;
+                Vector3 p = __instance.transform.position;
+                string s = "~Rounds: " + (__instance.whichNavy == 0 ? "our" : "opponent's") + " shell ended at height " + ((p.y - 1000f) * GameDataManager.unitsToFeet).ToString("F0") + " ft";
+                Vessel own = GameDataManager.playervesselsonlevel != null && GameDataManager.playervesselsonlevel.Length > 0 ? GameDataManager.playervesselsonlevel[0] : null;
+                if (own != null) s += " | our vessel " + Patch_DepthChargeExplode.Describe(p, own);
+                foreach (Opponent o in Duel.InGame) if (o.Puppet != null) s += " | " + o.Label + " " + Patch_DepthChargeExplode.Describe(p, o.Puppet);
+                Duel.Log(s);
+            }
+            catch (System.Exception) { }
+        }
     }
 }
