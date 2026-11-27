@@ -219,6 +219,24 @@ Krivak, Kara in the middle; Knox, Kotlin, Riga, Chinese frigates at the bottom.
 - 1v1 sub vs ship is lopsided by the numbers above (the sub wins almost always); team games with mixed teams are
   where ships fit. A mixed-team discount on ship costs is one idea to test.
 
+## Seen in game (step 0, 27 Nov, test copy, single player, testing grounds)
+- Picked from the normal vessel list: the ships come after the 66 subs (Knox first). Loaded an Arleigh Burke Flight I
+  (meant the Spruance; one click too many). Loads and runs with the mod installed, 0 exceptions.
+- **HUD works** (no `HudFix` trouble seen): helicopter panel (SH-60B, launch / plot course / recover, torpedo count),
+  Nixie and towed array (SQR-19) panel, anti-ship missile (UGM-84) and SAM (RIM-66M) panel, telegraph, 5"/54 gun
+  (680 rounds), masts, active sonar, decoys; six 324 mm tubes with Mk46; weapons tab: Mk46 13, VL-ASROC 25, SM-2 38,
+  TLAM 10 (VLS 73). Depth stays 0 ft. Own noise shown 147.8 dB at 5 kn = 92.8 + 160 / 3.2 + 5, as computed.
+- **Helicopter**: first press of launch arms it ("Aircraft ready to launch", 2 Mk46 loaded, tubes 15 -> 13), second
+  press launches. "Plot aircraft course": the course line follows the cursor and a right-click commits it; it flew
+  there. "Plot aircraft attack" (drop point) worked the same way but the point landed where the cursor rested, not
+  where I clicked: the UI is fiddly, not understood yet. About two minutes later: "Air target SH-60B Seahawk is shot
+  down" and the icon froze. No enemy was seen and nothing in the logs; the message comes from `Player_AntiMissileGuns`
+  or a SAM (`AirTargetIntercepted`). Possibly a hostile in the testing grounds, possibly own fire: to check, because
+  in multiplayer nobody should be shooting at your helicopter.
+- VLS: selecting VL-ASROC for the VLS bar wasn't figured out (clicking the bar and the weapon did nothing visible).
+- Not tried yet: firing tubes or VLS at a target, active sonar, guns, a ship in a duel.
+- Logs: `logs\ship-look-0` (local folder).
+
 ## Order of work
 0. **Look first**: load a `_pl` ship in the testing grounds on a test copy without a duel, to see the controls, HUD
    (does `HudFix` handle `default_usn`?), helicopter panel and VLS in normal play.
