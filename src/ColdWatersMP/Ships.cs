@@ -4,6 +4,7 @@
 // games a ship is shown as its twin, so their torpedoes, missiles, radar, map and ID book treat it as a ship.
 using System.Collections.Generic;
 using HarmonyLib;
+using UnityEngine;
 
 namespace ColdWatersMP
 {
@@ -77,6 +78,83 @@ namespace ColdWatersMP
             if (real == null || puppet == null || puppet.databaseshipdata == null || real == puppet.databaseshipdata) return 0f;
             float diff = real.selfnoise - puppet.databaseshipdata.selfnoise;
             return compression != 0f ? diff / compression : diff;
+        }
+    }
+
+    /// <summary>Towed decoys (Nixie). Only some player ships carry one (US and Australian frigates, destroyers, cruisers,
+    /// Iowa), and none of their AI versions, so a ship's puppet had no decoy to seduce the other players' torpedoes.
+    /// VesselBuilder builds a vessel's decoy from six class fields; while the mission loads, the AI version borrows the
+    /// player ship's values, and gets its own back right after. The decoy's state then follows the network (Duel).</summary>
+    public static class Decoys
+    {
+        class Saved { public int Cls; public int Id; public Vector3 Pos; public string Settings; public float Max, Min; public int Count; }
+        static readonly List<Saved> _saved = new List<Saved>();
+
+        public static void Lend(int twin, int player)
+        {
+            if (twin == player) return;
+            DatabaseShipData[] db = UIFunctions.globaluifunctions.database.databaseshipdata;
+            DatabaseShipData t = db[twin], p = db[player];
+            if (p.towedDecoyID < 0 || t.towedDecoyID >= 0) return;
+            foreach (Saved s0 in _saved) if (s0.Cls == twin) return;
+            _saved.Add(new Saved { Cls = twin, Id = t.towedDecoyID, Pos = t.towedDecoyPosition, Settings = t.towedDecoySettings, Max = t.towedDecoyMaxSpeed, Min = t.towedDecoyMinSpeed, Count = t.towedDecoyCount });
+            t.towedDecoyID = p.towedDecoyID; t.towedDecoyPosition = p.towedDecoyPosition; t.towedDecoySettings = p.towedDecoySettings;
+            t.towedDecoyMaxSpeed = p.towedDecoyMaxSpeed; t.towedDecoyMinSpeed = p.towedDecoyMinSpeed; t.towedDecoyCount = p.towedDecoyCount;
+            Duel.Log("~Towed decoy: " + t.shipPrefabName + " borrows the decoy of " + p.shipPrefabName + " for this mission's puppet");
+        }
+
+        public static void GiveBack()
+        {
+            if (_saved.Count == 0) return;
+            DatabaseShipData[] db = UIFunctions.globaluifunctions.database.databaseshipdata;
+            foreach (Saved s in _saved)
+            {
+                DatabaseShipData t = db[s.Cls];
+                t.towedDecoyID = s.Id; t.towedDecoyPosition = s.Pos; t.towedDecoySettings = s.Settings;
+                t.towedDecoyMaxSpeed = s.Max; t.towedDecoyMinSpeed = s.Min; t.towedDecoyCount = s.Count;
+            }
+            _saved.Clear();
+        }
+
+        // State byte: 1 deployed, 2 short stay, 4 active (noisemaker on), 8 damaged, 16 destroyed; 0 = none or stowed.
+        public static byte State(Vessel v)
+        {
+            DotModTowedDecoy d = v != null && v.vesselmovement != null ? v.vesselmovement.towedDecoy : null;
+            if (d == null) return 0;
+            try
+            {
+                byte b = 0;
+                if (d.GetDeployed()) b |= 1;
+                if (d.isShortStay) b |= 2;
+                if (d.GetDecoyActive()) b |= 4;
+                if (d.isDamaged) b |= 8;
+                if (d.isDestroyed) b |= 16;
+                return b;
+            }
+            catch (System.Exception) { return 0; }
+        }
+
+        /// <summary>Make a puppet's decoy match its player's (only what differs, so DotMod's messages and checks run once).</summary>
+        public static void Apply(Opponent o, byte want)
+        {
+            Vessel v = o.Puppet;
+            DotModTowedDecoy d = v != null && v.vesselmovement != null ? v.vesselmovement.towedDecoy : null;
+            if (d == null) return;
+            try
+            {
+                bool destroyed = (want & 16) != 0, damaged = (want & 8) != 0, deployed = (want & 1) != 0, shortStay = (want & 2) != 0, active = (want & 4) != 0;
+                if (destroyed != d.isDestroyed) d.SetDestroyed(destroyed);
+                if (damaged != d.isDamaged) d.SetDamaged(damaged);
+                if (destroyed) return;
+                if (deployed != d.GetDeployed() || (deployed && shortStay != d.isShortStay)) d.SetDeployed(deployed, shortStay);
+                if (deployed && active != d.GetDecoyActive()) d.SetDecoyActive(active);
+                if (want != o.LastDecoy)
+                {
+                    o.LastDecoy = want;
+                    Duel.Log((Duel.Opps.Count > 1 ? o.Label + "'s" : "Opponent's") + " towed decoy: " + (destroyed ? "destroyed" : !deployed ? "stowed" : (shortStay ? "short" : "long") + " tow, " + (active ? "ACTIVE" : "silent")) + (damaged ? ", damaged" : ""));
+                }
+            }
+            catch (System.Exception) { } // before DotMod's Start has run
         }
     }
 

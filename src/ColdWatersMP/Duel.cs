@@ -14,6 +14,7 @@ namespace ColdWatersMP
     {
         public int Id; public string Name = ""; public int Team;
         public int Class = -1; public string ClassName = ""; public float RpgSelfNoiseBonus; public int MissionId = -1;
+        public byte LastDecoy;           // the towed decoy state last applied to their puppet (logging)
         public bool InMission, InOldMission, AtStations;
         public bool RunningSilent, ActiveSonar;
         public Vessel Puppet;            // null when they are not in our current mission
@@ -167,7 +168,7 @@ namespace ColdWatersMP
         static bool AllAtStations { get { foreach (Opponent o in InGame) if (!o.AtStations && _opps.ContainsKey(o.Id)) return false; return true; } }
 
         // Latest two states of a puppet, for extrapolation
-        internal struct SubState { public float T; public Vector3 Pos; public Vector3 Euler; public float SpeedZ; public int Telegraph; public Vector2 Rudder; public Vector2 Ballast; public bool Cav; public bool Silent; public bool Submerged; public bool Active; public byte Towed; }
+        internal struct SubState { public float T; public Vector3 Pos; public Vector3 Euler; public float SpeedZ; public int Telegraph; public Vector2 Rudder; public Vector2 Ballast; public bool Cav; public bool Silent; public bool Submerged; public bool Active; public byte Towed; public byte Decoy; }
 
         public static string StatusLine
         {
@@ -274,6 +275,7 @@ namespace ColdWatersMP
         /// <returns>false to hold the load until the opponent's sub choice arrives.</returns>
         public static bool BeforeLoadLevel(LevelLoadManager llm)
         {
+            Decoys.GiveBack(); // in case a held load never ran
             if (LocalInMission)
             {
                 // Safety net: we never saw the previous mission end. Treat it as ended now, but keep the
@@ -354,6 +356,7 @@ namespace ColdWatersMP
                     Log("WARNING: " + Who(o) + " has not chosen a sub yet; using your own class for their puppet");
                 }
                 int pcls = Ships.PuppetClass(cls); // a player ship shows as its AI twin (typed as a ship)
+                Decoys.Lend(pcls, cls); // the AI twin has no towed decoy: lend it the player ship's while the mission loads
                 classes.Add(pcls);
                 int sid = db[pcls].shipID;
                 for (int i = o.Base; i < o.Base + 1 + SlotsPer; i++) { d.enemyShipBehaviour[i] = "DEFENSIVE"; d.kmShipClasses[i] = sid; }
@@ -373,6 +376,7 @@ namespace ColdWatersMP
         public static void DropHeldLoad()
         {
             if (_heldLoad == null) return;
+            Decoys.GiveBack();
             _heldLoad = null;
             _choiceMade = false;
             // Tell the opponent: our sub choice (and, from the host, the map) no longer stand.
@@ -396,6 +400,7 @@ namespace ColdWatersMP
         /// <summary>LoadLevel postfix: set up the puppet and placement.</summary>
         public static void AfterLoadLevel()
         {
+            Decoys.GiveBack(); // puppets are built: the AI classes get their own decoy data back
             if (!InDuel) return;
             if (GameDataManager.enemyvesselsonlevel == null || GameDataManager.enemyvesselsonlevel.Length == 0)
             {
@@ -922,6 +927,7 @@ namespace ColdWatersMP
                 w.Write(m.isCavitating); w.Write(silent); w.Write(v.submerged);
                 w.Write(v.acoustics.usingActiveSonar);
                 w.Write(TowedState(v));
+                w.Write(Decoys.State(v));
             }, false);
         }
 
@@ -953,6 +959,7 @@ namespace ColdWatersMP
             Vector3 sp = m.shipSpeed; sp.z = s1.SpeedZ; m.shipSpeed = sp;
             puppet.submerged = s1.Submerged;
             ApplyTowed(puppet, s1.Towed);
+            Decoys.Apply(o, s1.Decoy);
 
             // Extrapolate the target pose from the last two states (unit-agnostic)
             Vector3 target = s1.Pos;
@@ -1048,6 +1055,7 @@ namespace ColdWatersMP
                     s.Cav = r.ReadBoolean(); s.Silent = r.ReadBoolean(); s.Submerged = r.ReadBoolean();
                     s.Active = r.ReadBoolean();
                     s.Towed = r.ReadByte();
+                    s.Decoy = r.ReadByte();
                     if (o.StateCount > 0 && s.T <= o.S1.T) break; // stale/out of order
                     if (o.Sunk && !o.InMission) break; // they left this battle: their next mission is not ours
                     o.S0 = o.StateCount > 0 ? o.S1 : s; o.S1 = s; o.S1Local = Time.time;
