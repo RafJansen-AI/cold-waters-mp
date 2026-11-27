@@ -172,7 +172,8 @@ namespace ColdWatersMP
         static bool LaunchTransient(Vessel firer, DatabaseWeaponData wd)
         {
             Vessel own = GameDataManager.playervesselsonlevel[0];
-            if (own == null || firer == null || wd.swimOut) return false;
+            if (own == null || firer == null) return false;
+            if (wd.swimOut) { Duel.Log("Launch transient: none, " + wd.weaponName + " swims out (as in the game)"); return false; }
             PlayerFunctions pf = UIFunctions.globaluifunctions.playerfunctions;
             SensorManager sm = pf.sensormanager;
             float heard = sm.CheckCanHearTransient(own, firer);

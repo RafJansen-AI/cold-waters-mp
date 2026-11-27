@@ -89,6 +89,10 @@ namespace ColdWatersMP
         {
             Vector3 p = _park; p.y = 1000f - 200f / GameDataManager.unitsToFeet; // 200 ft: safe for every sub, never crushed
             v.transform.position = p;
+            // Silent at once: the mission's own sonar checks before battlestations read currentNoise before our
+            // GetVesselNoiseLevel postfix has run, and heard parked ghosts at 300 kyd with the class's 140.8 dB
+            // (named S2, S3 at load; seen 26 and 27 Nov).
+            if (v.acoustics != null) v.acoustics.currentNoise = -1000f;
             Duel.ApplyTowed(v, 0);
             if (v.vesselmovement != null) { v.vesselmovement.telegraphValue = 0; Vector3 s = v.vesselmovement.shipSpeed; s.z = 0f; v.vesselmovement.shipSpeed = s; }
         }
