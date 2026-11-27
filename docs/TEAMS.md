@@ -1,6 +1,7 @@
 # Team battles (design draft)
 
-Status: research and design, nothing built yet. Goal: up to 4 against 4, any split (1v3, 2v1, ...), with an
+Status: step 1 done on `dev` (27 Nov): several players, host hub, team lobby; the duel still plays 1v1. The game's
+15-ship cap can be raised (tested with 29 vessels). Goal: up to 4 against 4, any split (1v3, 2v1, ...), with an
 arcade mode (teams share what they know) and a hardcore mode (each sub only knows what its own crew detects).
 Each player still runs their own game; the mod keeps the games in step, as in the 1v1 duel.
 
