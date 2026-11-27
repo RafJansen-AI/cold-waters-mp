@@ -1,8 +1,12 @@
 # Surface vessels (design draft)
 
 Status: plan only, nothing built (27 Nov). Goal of the next release: a player can command a surface ship instead of a
-submarine, against subs and later against other ships, in 1v1 and in team battles ([TEAMS.md](TEAMS.md)), with match
-mode and battle rating ([MATCH-MODE.md](MATCH-MODE.md), [BATTLE-RATING.md](BATTLE-RATING.md)) covering ships too.
+submarine, against subs and against other ships, in 1v1 and in team battles ([TEAMS.md](TEAMS.md)).
+
+**Decided by Raf (27 Nov):** balance waits for a later release (proper matches with match mode and battle rating,
+[MATCH-MODE.md](MATCH-MODE.md), [BATTLE-RATING.md](BATTLE-RATING.md)). For this release **any ship can be picked and
+any matchup is possible** (sub vs ship, ship vs ship, mixed teams), for fun and testing. No `Allow ships` setting, no
+exclusions. The helicopter dipping sonar: looked into (see below), Raf to decide.
 
 Sources: Cold Waters 1.15g + DotMod v0.4c, read with Mono.Cecil (`Assembly-CSharp.dll`) and from the DotMod data files
 (`StreamingAssets/dotmod`). "Read in code" = seen in the IL; "data" = from the text files; nothing below was tried in
@@ -111,10 +115,9 @@ is realistic, but it is not a fair duel.
 ## What changes in the mod
 
 ### 1. Ship choice
-- New host setting `Allow ships` (off by default until balanced). When on, the vessel list in multiplayer includes the
-  46 `_pl` classes (from single001's `PlayerVessels`), filtered by era and side as for subs.
-- Exclude by default: Nimitz (no anti-sub weapons, no sonar: `nav_sonar` 12), Iowa (same), Huangfeng (184 t patrol
-  boat, 6 hull points). Moskva and Kiev (18 helicopters) only in team games. Same idea as the Mike rule.
+- The vessel list in multiplayer includes all 46 `_pl` classes (from single001's `PlayerVessels`) next to the subs,
+  in every mission, as the subs are today. No setting, no exclusions, any pairing (Raf, 27 Nov). Nimitz and Iowa have
+  no real sonar (`nav_sonar` 12) and Huangfeng has 6 hull points: allowed anyway, just weak.
 
 ### 2. The opponent's ship in your game (the puppet)
 - Spawn the **AI twin class** (`_ai` / plain name), not the `_pl` class: it is typed as a ship, so your torpedoes,
@@ -149,8 +152,40 @@ is realistic, but it is not a fair duel.
 - Radar: each player's radar runs in their own game against puppets, so it works as is. Open: does the sub's
   ESM/mast warning (`strongestRadarSignal`) react to the ship's radar? If it needs the emitter's state, send "radar
   on/off" with the vessel state.
-- The helicopter is not shown in the opponent's game in step 1 (it has no sensors to give it away and subs can't
-  shoot at it). Later: a visible helicopter model in the sub's periscope view.
+- The helicopter is not shown in the opponent's game at first (without a dipping sonar nothing gives it away, and
+  subs can't shoot at it). Later: a visible helicopter model, which ship vs ship needs (SAMs can shoot helicopters).
+
+### 7. Helicopter dipping sonar (looked into 27 Nov, not decided)
+What the AI helicopter does (`Helicopter.CheckDippingSonar`, read in code): it hovers, then calls the game's general
+sonar function `SensorManager.CheckSingleSonar(listener, contact, passiveSonarID, activeSonarID, mode, sensordata,
+isSonobuoy, sonobuoy)` with itself as the listener and its own sonar (SH-60B: AQS-13F; Hormone, Helix, Lynx, Z-9 have
+sets in the data too). The same function serves AI ships and the player's torpedo tracking. It works out what kind
+of listener it has with `GetComponent` (`Vessel`, `Helicopter` or `Aircraft`).
+
+What a player dipping sonar needs:
+1. **A "dip" order.** The player's helicopter (`DotModPlayerAircraft`) already flies waypoints and hovers. Simplest:
+   it dips by itself when it stops at its last waypoint, and lifts when given a new one. A key or button is nicer;
+   DotMod's aircraft panel would need a new button (the mod already adds UI elsewhere).
+2. **The detection.** Every sonar sweep (8 s game time, as the player's own sonar) while dipping, for each vessel in
+   the enemy list, call `CheckSingleSonar` from the helicopter's position. The player's helicopter has none of the
+   three components, so the call needs a stand-in: either a disabled `Helicopter` component on it, so the game takes
+   its helicopter path (about 60% it works without side effects; the helicopter path reads fields I haven't traced),
+   or the mod's own copy of the formula, which is already known (passive and active sums above). Either way it can
+   be tested in single player, without a second game.
+3. **Feeding the contact to the player's map.** Call the game's `ContactDetected(i, "SONAR")` and
+   `CalculatePlayerTMA(i, ...)`, as `SonarCheck` does. The game draws a contact's estimate from the contact's true
+   position plus an error, so a detection away from the ship shows in the right place. The delicate part: the ship's
+   own `SonarCheck` calls `CheckIfContactLost` every sweep for contacts its own sonar doesn't hear, which would drop
+   the helicopter's contact at once. A patch must keep a contact the helicopter heard in the last sweep or two. The
+   mod already patches contact loss (tracks, decoys), so it fits next to that code.
+4. **Multiplayer.** An active dip pings: the sub must hear it from the helicopter's position, so the ping message gets
+   a position (today pings come from the vessel). A passive dip is silent and needs nothing.
+
+**Estimate:** easier than feared. The game has a general sonar function and a contact display that works for
+off-ship detections; the work is the dip order, the contact-loss patch and the ping position. Roughly 1-2 sessions of
+work plus testing, about the size of the rule-2 track work. Risks: the stand-in listener (point 2) and how DotMod's
+helicopter state machine reacts if the mod holds it in a hover. Sonobuoys (dropped by the helicopter) would reuse the
+same pieces later.
 
 ### 6. Team battles and match mode
 - A ship is just another player vessel: the lobby shows class and type, the hub, placement lists, results and
@@ -161,7 +196,9 @@ is realistic, but it is not a fair duel.
 - Area control: ships count like subs (real player vessels only, decoys never). A ship near the objective is loud,
   so it is a natural "holder" that the other side hunts.
 
-## Balance
+## Balance (later release, Raf 27 Nov)
+
+Not part of this release: any ship, any matchup. Kept here as the starting point for proper matches.
 
 ### Battle rating for ships
 The sub formula (acoustic edge) would put every ship at the bottom, because their SelfNoise wipes out everything else.
@@ -178,30 +215,25 @@ Then a hand-set offset per type in `cwmp-balance.cfg`, because the formula can't
 quiet sub. Expected order (my guess, to be computed): Ticonderoga, Burke, Udaloy, Spruance near the top; Perry,
 Krivak, Kara in the middle; Knox, Kotlin, Riga, Chinese frigates at the bottom.
 
-### Formats (proposal)
-- **1v1 sub vs ship: off by default** (host can allow it). By the numbers above, the sub wins almost always.
-- **Team games: ships allowed**, priced by points. Proposed starting rule: a ship's cost counts at 75% in a team that
-  also has a sub, to reward mixed teams; to be checked in playtests.
-- **Ship vs ship** (missiles, guns, SAMs): a later step and its own balance pass.
+### Formats (ideas for later)
+- 1v1 sub vs ship is lopsided by the numbers above (the sub wins almost always); team games with mixed teams are
+  where ships fit. A mixed-team discount on ship costs is one idea to test.
 
 ## Order of work
-1. **Ship as a player, ASW only.** Ship choice (`Allow ships`), puppet = AI twin with all ship AI off and no
-   helicopters, noise from the `_pl` class, surface placement. Weapons: tube torpedoes, ASROC/SS-N-14/RPK-6, active
-   sonar pings, Nixie. Test 1v1 Spruance vs Los Angeles and Udaloy vs Akula on the two copies.
+0. **Look first**: load a `_pl` ship in the testing grounds on a test copy without a duel, to see the controls, HUD
+   (does `HudFix` handle `default_usn`?), helicopter panel and VLS in normal play.
+1. **Any ship as a player, any matchup.** Ships in the vessel list, puppet = AI twin with all ship AI off and no AI
+   helicopters, noise from the `_pl` class, surface placement. Weapons: tube torpedoes, ASROC/VL-ASROC/SS-N-14/RPK-6,
+   active sonar pings, Nixie. Test Spruance vs Los Angeles, Udaloy vs Akula, and Spruance vs Udaloy (torpedoes only)
+   on the two copies.
 2. **Helicopter torpedoes and RBU/depth bombs** (new launch hook, mortar salvo message).
-3. **Anti-ship missiles, sub -> ship**: missile copy in the target's game, CIWS/SAM/chaff decide, chaff sync.
-4. **Battle rating for ships** (computed table + `cwmp-balance.cfg`), lobby limits, ships in team battles.
-5. Release (0.3.0) after 1-4 and team playtests. **Ship vs ship** (guns, ship missiles) and a visible helicopter come
-   after, unless Raf wants them in the first release.
-
-Before step 1: load a `_pl` ship in a single mission on a test copy without the mod's duel (testing grounds), to see
-the controls, HUD (does `HudFix` handle `default_usn`?), helicopter panel and VLS in normal play.
+3. **Anti-ship missiles, from subs and ships**: missile copy in the target's game, CIWS/SAM/chaff decide, chaff sync.
+4. **Naval guns** (ship vs ship, surfaced subs), visible helicopter (SAMs can shoot it).
+5. **Helicopter dipping sonar**, if Raf wants it (section 7).
+6. Ships in team battles (mostly checks: lobby shows type, placement per team). Release 0.3.0 when 1-4 and 6 work;
+   5 can go in the release or after.
 
 ## Open questions for Raf
-1. First release: ASW only (steps 1-4), or include ship vs ship?
-2. 1v1 sub vs ship: allowed only by host setting (my proposal), or not at all?
-3. Exclusions: Nimitz, Iowa, Huangfeng out; Moskva and Kiev team-only. Agree?
-4. The player's helicopter has no sensors in DotMod. Keep it as is (torpedo carrier), or should the mod give it a
-   dipping sonar (a sonar check from the helicopter's position, as the AI helicopter has)? That is real work and
-   changes ship balance a lot.
-5. Mixed-team discount (75%), or plain 2^BR for everyone?
+1. Dipping sonar: in this release (step 5), later, or not at all?
+2. Anything from steps 2-4 that can wait for a later release? (Missiles matter most: without them ship vs ship is
+   torpedoes only.)
