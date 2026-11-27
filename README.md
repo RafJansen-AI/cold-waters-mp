@@ -18,7 +18,7 @@
 |---|---|
 | Cold Waters | 1.15g. Tested on GOG; Steam should work but is untested (a GOG and a Steam player have not played each other yet). |
 | DotMod | v0.4c, installed as DotMod describes (JSGME / DotModInstaller) |
-| A way to reach each other | Same LAN, or a VPN such as [Radmin VPN](https://www.radmin-vpn.com) (easiest), [Tailscale](https://tailscale.com) or ZeroTier |
+| A way to reach each other | Same LAN, a VPN such as [Radmin VPN](https://www.radmin-vpn.com) (easiest), [Tailscale](https://tailscale.com) or ZeroTier, or direct over the internet with UDP port 7777 forwarded to the host |
 
 Both players need the same game version, the same DotMod and the same mod version.
 
@@ -50,7 +50,16 @@ Both contain [BepInEx 5](https://github.com/BepInEx/BepInEx) (x86), already set 
 
 **Tailscale** works too: both PCs must be in the same Tailscale network; having Tailscale installed is not enough. The host shares their machine in the Tailscale admin console (*Share*) or invites the other player, who then joins the host's `100.x.y.z` address.
 
+**Direct, without a VPN (port forwarding):** the mod talks plain UDP, so no VPN is needed if the host's router lets the game in.
+1. The host forwards **UDP port 7777** in their router to their PC's local address (the `192.168.x.y` the MULTIPLAYER window shows), and allows Cold Waters through the Windows firewall (or allows UDP 7777 inbound).
+2. The host looks up their public address, for example on a "what is my IP" website (the MULTIPLAYER window only shows local addresses).
+3. The client joins that public address. Only the host needs a forwarded port; the client needs nothing.
+
+This doesn't work if the host's internet provider puts them behind carrier-grade NAT (common on mobile and some fibre/cable connections): then the router's own WAN address differs from the address websites show, and nothing can be forwarded. Use a VPN or a tunnel in that case. Another port works too: set `Port` under `[Network]` in `BepInEx\config\cwmp.cfg` on both PCs, or have the client type `address:port`. The connection is direct between the two PCs; the password option (both type the same one) keeps strangers who find the open port from joining.
+
 **Address with a port:** the client's address box takes `host` or `host:port`, for tunnels such as playit.gg that give their own port.
+
+**Linux / Proton:** untested. BepInEx loads through `winhttp.dll`, which Wine/Proton usually only uses with a DLL override: in Steam's launch options for Cold Waters, `WINEDLLOVERRIDES="winhttp=n,b" %command%`. Reports welcome.
 
 **Session password (recommended with strangers):** type the same password on both sides; the host refuses and drops anyone without it, and also drops a connection that sends nothing valid within 5 s. It is a door lock, not encryption: game traffic is not encrypted, and the password is stored as plain text in `cwmp.cfg`, so use a throwaway one.
 
@@ -103,7 +112,7 @@ Setup: run `Uninstall.cmd`. JSGME: disable the mod (BepInEx leaves its own logs 
 ## Troubleshooting
 
 - **No MULTIPLAYER button:** check that `winhttp.dll` and `BepInEx` sit next to `ColdWaters.exe`. Then open `BepInEx\LogOutput.log` and look for `Cold Waters MP ... loaded`.
-- **Can't connect:** check the address, whether the host has started hosting, the Windows firewall (UDP 7777 on the host), and whether your VPN is connected on both PCs.
+- **Can't connect:** check the address, whether the host has started hosting, the Windows firewall (UDP 7777 on the host), and whether your VPN is connected on both PCs. Without a VPN: the port forward (UDP, not TCP, to the host's current local address) and whether the host is behind carrier-grade NAT (see *Direct, without a VPN*).
 - **"Refused: ... differs":** the two installs differ. Use the same mod version, and put back any edited game files (or reinstall DotMod) on one side.
 - **Bug report:** open an issue with `BepInEx\LogOutput.log` from both players and what happened.
 
