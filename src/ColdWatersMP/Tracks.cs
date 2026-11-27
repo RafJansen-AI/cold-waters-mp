@@ -2,10 +2,13 @@
 // The game gives every vessel slot a Sierra number at its first detection (SensorManager.ContactDetected, when
 // initialDetectedByPlayerName[i] is null) and keeps it forever. A decoy ghost is its own slot, so it always came up as
 // a new Sierra, a giveaway when the real sub had been heard before. One rule for the puppet and every ghost:
-//  - a track lost for longer than LostLimit is dropped: its next detection is a new contact with a new number, and a
-//    faded "S1 Barbel?" marker stays at its last known position;
-//  - a first detection within BearingLimit of a track lost less than LostLimit ago continues that track (the game
-//    then calls "regained contact"), and the old slot's track is dropped.
+//  - a lost track is dropped once its solution has decayed below the map's course threshold (TacticalMap.qualityToCourse),
+//    the point where the game would show it again as a plain circle (Raf, 27 Nov: follow the game, no fixed timer).
+//    The game takes 10-15 points off at the loss and 4-10 at every sonar check (8 s) after it, floor 1-10%.
+//    Its next detection is a new contact with a new number, and a faded "S1 Barbel?" marker stays at its last position.
+//    A contact that is still detected keeps its number, however poor its solution;
+//  - a first detection within BearingLimit of a lost track that has not been dropped yet continues that track (the
+//    game then calls "regained contact"), and the old slot's track is dropped.
 // So a new Sierra of the opponent's class no longer tells decoy from sub, and a decoy launched after the sub was lost
 // reads like the sub coming back. Not covered: a decoy launched while the real sub is tracked still gets a new number.
 using System.Collections.Generic;
@@ -18,12 +21,16 @@ namespace ColdWatersMP
 {
     public static class Tracks
     {
-        public const float LostLimit = 120f;    // game seconds (Time.time follows time compression)
         public const float BearingLimit = 15f;  // degrees between the new contact and the lost track's last bearing
+        static bool _thresholdsLogged;
 
         static readonly Dictionary<int, float> _lostAt = new Dictionary<int, float>();
         static readonly Dictionary<int, float> _lastBrg = new Dictionary<int, float>();
         static readonly List<int> _slots = new List<int>();
+        // Slots our sonar has detected since the duel began. The mission's own load-time sonar checks name contacts
+        // ("designate Sierra 1") before the duel moves the subs; those were never seen in the duel and are cleared
+        // quietly, without a last-known marker at a position that means nothing (seen 27 Nov).
+        static readonly HashSet<int> _seen = new HashSet<int>();
 
         static SensorManager SM { get { return UIFunctions.globaluifunctions.playerfunctions.sensormanager; } }
 
@@ -34,7 +41,7 @@ namespace ColdWatersMP
 
         public static void Reset()
         {
-            _lostAt.Clear(); _lastBrg.Clear();
+            _lostAt.Clear(); _lastBrg.Clear(); _seen.Clear(); _thresholdsLogged = false;
             foreach (LastKnown lk in _lastKnown) if (lk.Go != null) Object.Destroy(lk.Go);
             _lastKnown.Clear();
         }
@@ -104,30 +111,50 @@ namespace ColdWatersMP
             return b < 0f ? b + 360f : b;
         }
 
-        /// <summary>Every frame in a duel: note when tracks are lost and drop the ones lost too long.</summary>
+        /// <summary>Solution quality of slot i (0..100), or NaN.</summary>
+        static float Quality(int i)
+        {
+            float[] q = SM.solutionQualityOfContacts;
+            return q != null && i >= 0 && i < q.Length ? q[i] : float.NaN;
+        }
+
+        /// <summary>Every frame in a duel: note when tracks are lost and drop the ones whose solution has decayed to a circle.</summary>
         public static void Update()
         {
             if (!Duel.InDuel) return;
             PlaceLastKnown();
+            TacticalMap tm = SM.tacticalmap;
+            if (tm == null || !Duel.PlacementApplied) return; // before placement every position is the mission's, not the duel's
+            if (!_thresholdsLogged)
+            {
+                _thresholdsLogged = true;
+                Duel.Log("~Tracks: map thresholds course " + tm.qualityToCourse.ToString("F0") + "%, true position/tails " + tm.qualityToDrawTails.ToString("F0") + "%; a lost track is dropped below " + tm.qualityToCourse.ToString("F0") + "%");
+            }
             Ghosts.OpponentSlots(_slots);
             foreach (int i in _slots)
             {
                 if (!HasName(i)) { _lostAt.Remove(i); continue; }
                 if (Detected(i))
                 {
+                    _seen.Add(i);
                     _lostAt.Remove(i);
                     float b = BearingTo(i);
                     if (!float.IsNaN(b)) _lastBrg[i] = b;
                     continue;
                 }
+                if (!_seen.Contains(i)) { Drop(i, "named before the duel began, never detected in it", false); continue; }
                 float at;
-                if (!_lostAt.TryGetValue(i, out at)) { _lostAt[i] = Time.time; continue; }
-                if (Time.time - at > LostLimit) Drop(i, "lost for " + (LostLimit / 60f).ToString("F0") + " min");
+                if (!_lostAt.TryGetValue(i, out at)) { _lostAt[i] = at = Time.time; }
+                float q = Quality(i);
+                if (!float.IsNaN(q) && q < tm.qualityToCourse)
+                    Drop(i, "lost " + (Time.time - at).ToString("F0") + " s, solution " + q.ToString("F0") + "% below the course threshold " + tm.qualityToCourse.ToString("F0") + "%");
             }
         }
 
         /// <summary>Forget slot i's track: no name, no classification, marker hidden. Its next detection is a new contact.</summary>
-        public static void Drop(int i, string why)
+        public static void Drop(int i, string why) { Drop(i, why, true); }
+
+        static void Drop(int i, string why, bool leaveMarker)
         {
             SensorManager sm = SM;
             if (!HasName(i)) return;
@@ -140,7 +167,7 @@ namespace ColdWatersMP
             MapContact mc = sm.tacticalmap != null && i < sm.tacticalmap.mapContact.Length ? sm.tacticalmap.mapContact[i] : null;
             if (mc != null && !Detected(i))
             {
-                try { LeaveLastKnown(mc, mc.contactText != null && !string.IsNullOrEmpty(mc.contactText.text) ? mc.contactText.text : name); }
+                if (leaveMarker) try { LeaveLastKnown(mc, mc.contactText != null && !string.IsNullOrEmpty(mc.contactText.text) ? mc.contactText.text : name); }
                 catch (System.Exception ex) { Duel.Log("~Last-known marker failed: " + ex.Message); }
                 mc.gameObject.SetActive(false);
             }
@@ -151,7 +178,11 @@ namespace ColdWatersMP
         /// <summary>ContactDetected prefix: a first detection near a recently lost opponent track continues that track.</summary>
         public static void BeforeContactDetected(int i)
         {
-            if (!Duel.InDuel || HasName(i)) return;
+            if (!Duel.InDuel) return;
+            // Count every detection after placement as seen: under time compression a contact can be detected and lost
+            // again between two rendered frames, so Update alone could miss it.
+            if (Duel.PlacementApplied) _seen.Add(i);
+            if (HasName(i)) return;
             Ghosts.OpponentSlots(_slots);
             if (!_slots.Contains(i)) return; // neutrals keep the game's own numbering
             float brg = BearingTo(i);
@@ -162,7 +193,7 @@ namespace ColdWatersMP
             {
                 float at, last;
                 if (d == i || !HasName(d) || Detected(d) || Ghosts.IsUncloaked(d)) continue;
-                if (!_lostAt.TryGetValue(d, out at) || Time.time - at > LostLimit) continue;
+                if (!_lostAt.TryGetValue(d, out at)) continue; // not seen lost yet (lost this very frame): skip
                 if (!_lastBrg.TryGetValue(d, out last)) continue;
                 float diff = Mathf.Abs(Mathf.DeltaAngle(brg, last));
                 if (diff <= best) { best = diff; donor = d; }
@@ -215,7 +246,7 @@ namespace ColdWatersMP
                 float at;
                 string lost = _lostAt.TryGetValue(i, out at) ? ", lost " + (Time.time - at).ToString("F0") + " s" : "";
                 if (b.Length > 0) b.Append(" | ");
-                b.Append("slot " + i + " " + (HasName(i) ? sm.initialDetectedByPlayerName[i] : "-") + " det " + Detected(i) + " sig " + sig.ToString("F1") + " " + kyd.ToString("F1") + " kyd" + lost);
+                b.Append("slot " + i + " " + (HasName(i) ? sm.initialDetectedByPlayerName[i] : "-") + " det " + Detected(i) + " sig " + sig.ToString("F1") + " " + kyd.ToString("F1") + " kyd sol " + Quality(i).ToString("F0") + "%" + lost);
                 if (v != null && v.acoustics != null) b.Append(" noise " + v.acoustics.currentNoise.ToString("F1"));
                 b.Append(MaskCheck(own, v));
             }
