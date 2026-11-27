@@ -28,9 +28,9 @@ Both players need the same game version, the same DotMod and the same mod versio
 
 ## Install
 
-Two downloads on the [Releases](../../releases) page (from 0.0.44 on), pick one:
+Two downloads on the [Releases](../../releases) page (from 0.0.44 on), pick one. **New to modding? Take A**: it needs no other tools.
 
-**A. Setup, for a clean game (no modding needed; with JSGME it adds the mod to JSGME):** `ColdWatersMP-Setup-<version>.zip`. Extract it anywhere and double-click `Install.cmd`. It finds your Cold Waters folder, downloads DotMod v0.4c from the DotMod team's GitHub (about 740 MB, checked by SHA-256), installs it and then this mod. If DotMod is already installed, it only adds the mod. `Uninstall.cmd` puts back exactly what was there before.
+**A. Setup, for a clean game (no modding needed, no JSGME needed; with JSGME it adds the mod to JSGME):** `ColdWatersMP-Setup-<version>.zip`. Extract it anywhere and double-click `Install.cmd`. It finds your Cold Waters folder, downloads DotMod v0.4c from the DotMod team's GitHub (about 740 MB, checked by SHA-256), installs it and then this mod. If DotMod is already installed, it only adds the mod. `Uninstall.cmd` puts back exactly what was there before.
 
 **B. JSGME, if you already run DotMod with JSGME:** `ColdWatersMP-<version>.zip`.
 
@@ -39,6 +39,15 @@ Two downloads on the [Releases](../../releases) page (from 0.0.44 on), pick one:
 3. Start the game. The main menu now has a **MULTIPLAYER** button. Disable the mod in JSGME to play without it.
 
 Without JSGME you can also copy the *contents* of the `ColdWatersMP` folder into the Cold Waters folder, so that `winhttp.dll`, `doorstop_config.ini` and a `BepInEx` folder sit next to `ColdWaters.exe`.
+
+**What is JSGME?** JSGME (JoneSoft Generic Mod Enabler) is a free mod manager many Cold Waters players use to switch mods such as DotMod on and off. It is not ours and not included here; it is available from mod sites such as [ModDB](https://www.moddb.com/downloads/jsgme). To use it:
+
+1. Put `JSGME.exe` in your Cold Waters folder (next to `ColdWaters.exe`) and start it. The first time, it creates a `MODS` folder.
+2. Put each mod in its own folder inside `MODS` (for example `MODS\DotMod`, `MODS\ColdWatersMP`).
+3. In JSGME, select a mod in the left list and move it to the right list to enable it. **A mod in the `MODS` folder does nothing until it is enabled here.** Enable DotMod first, then ColdWatersMP.
+4. Close JSGME and start the game. To go back to the plain game, disable the mods again (last enabled first).
+
+You don't need JSGME at all if you use the Setup (A).
 
 Both contain [BepInEx 5](https://github.com/BepInEx/BepInEx) (x86), already set up for Cold Waters, plus the mod. No game or DotMod file is changed.
 

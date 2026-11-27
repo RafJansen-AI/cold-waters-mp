@@ -12,6 +12,9 @@ Cold Waters MP - setup (DotMod + Cold Waters MP in one go)
      both players' files must match to connect.
 3. Start Cold Waters. The main menu has a MULTIPLAYER button.
 
+You don't need JSGME (a separate mod manager) for this setup. If you use JSGME anyway, the setup adds the mod
+to its MODS folder; remember that a mod in MODS does nothing until you enable it in JSGME.
+
 Uninstall.cmd removes exactly what Install.cmd added (listed in ColdWatersMP-installed.txt in the game folder)
 and restores the original game file.
 

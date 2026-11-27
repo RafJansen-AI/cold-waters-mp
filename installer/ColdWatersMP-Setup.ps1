@@ -271,6 +271,15 @@ function Do-Install {
     Say ''
     Say 'Start Cold Waters. The main menu now has a MULTIPLAYER button.'
     Say 'To remove everything this setup added, run Uninstall.cmd.'
+    if (-not (Test-Path -LiteralPath (Jsgme-Ini))) {
+        Say ''
+        Say 'No JSGME mod manager here: that is fine, this setup does not need it.'
+        if (Test-Path -LiteralPath (Join-Path $GameDir 'MODS')) {
+            Say 'Note: there is a MODS folder, but mods in it do nothing until they are enabled in JSGME.'
+            Say 'DotMod and Cold Waters MP are now installed directly, so you can ignore the MODS folder.'
+        }
+        Say 'If you want JSGME anyway, the README on GitHub explains what it is and how to use it.'
+    }
     if ($needDotMod) { Say "The DotMod download stays in $env:TEMP\ColdWatersMP-setup; you may delete it." }
 }
 
