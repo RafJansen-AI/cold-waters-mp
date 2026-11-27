@@ -873,12 +873,17 @@ namespace ColdWatersMP
     }
 
     /// <summary>GetContactColor gives any slot the HUD's EnemyColor (navyColors[1]; DotMod HUDs: blue, vanilla: red) unless
-    /// its classified class is civilian, whether the slot is classified or not. In a duel a slot can lose its
-    /// classification (Tracks drops or moves its track), and the "decoy?" untag asks for the colour too: an unclassified
-    /// slot gets NeutralColor (navyColors[2]), as TacticalMapInit gives every contact. Classified: the game's colour.</summary>
+    /// its classified class is civilian, whether the slot is classified or not. There is no side rule in the game. In a
+    /// duel (Raf, 27 Nov; needed for 2v2 later): a classified contact gets the colour of its class's side, NATO in DotMod's
+    /// enemy blue and WP/PLAN in the vanilla enemy red; civilians keep the game's colour; an unclassified slot (also one
+    /// whose track Tracks dropped or moved, and the "decoy?" untag) gets NeutralColor (navyColors[2]), as TacticalMapInit
+    /// gives every contact. The own sub keeps PlayerColor.</summary>
     [HarmonyPatch(typeof(SensorManager), "GetContactColor")]
     static class Patch_GetContactColor
     {
+        static readonly Color NatoBlue = new Color(74f / 255f, 163f / 255f, 201f / 255f, 1f); // DotMod HUD EnemyColor
+        static readonly Color WpRed = new Color(1f, 136f / 255f, 154f / 255f, 1f);             // vanilla HUD EnemyColor
+
         static void Postfix(SensorManager __instance, int i, ref Color __result)
         {
             try
@@ -887,7 +892,11 @@ namespace ColdWatersMP
                 TacticalMap tm = __instance.tacticalmap;
                 Color[] nc = tm != null ? tm.navyColors : null;
                 if (nc == null || nc.Length < 3) return;
-                if (__instance.classifiedByPlayer == null || i < 0 || i >= __instance.classifiedByPlayer.Length || !__instance.classifiedByPlayer[i]) __result = nc[2];
+                if (__instance.classifiedByPlayer == null || i < 0 || i >= __instance.classifiedByPlayer.Length || !__instance.classifiedByPlayer[i]) { __result = nc[2]; return; }
+                DatabaseShipData d = UIFunctions.globaluifunctions.database.databaseshipdata[__instance.classifiedByPlayerAsClass[i]];
+                if (d.shipType == "BIOLOGIC" || Database.GetIsCivilian(d.shipPrefabName)) return; // the game's (green)
+                string navy = d.shipPrefabName.Split('_')[0];
+                __result = (navy == "wp" || navy == "plan") ? WpRed : NatoBlue;
             }
             catch (System.Exception) { }
         }
