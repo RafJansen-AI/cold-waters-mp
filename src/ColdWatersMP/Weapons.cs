@@ -11,7 +11,7 @@ namespace ColdWatersMP
 {
     public static class Weapons
     {
-        public const byte G_TORP_SPAWN = 5, G_TORP_STATE = 6, G_TORP_END = 7, G_TORP_HIT = 8, G_DAMAGE = 9, G_NOISEMAKER = 11, G_KNUCKLE = 14, G_DECAL = 20;
+        public const byte G_TORP_SPAWN = 5, G_TORP_STATE = 6, G_TORP_END = 7, G_TORP_HIT = 8, G_DAMAGE = 9, G_NOISEMAKER = 11, G_KNUCKLE = 14, G_DECAL = 20, G_EXPLOSION = 21;
 
         class Incoming
         {
@@ -493,6 +493,18 @@ namespace ColdWatersMP
                     ApplyOpponentDamage(Duel.InGameById(from), f, sinking);
                     return true;
                 }
+                case G_EXPLOSION:
+                {
+                    int magnitude = r.ReadInt32();
+                    Opponent o = Duel.InDuel ? Duel.InGameById(from) : null;
+                    if (o != null && o.Puppet != null)
+                    {
+                        try { UIFunctions.globaluifunctions.database.CreateExplosion(o.Puppet, magnitude, o.Puppet.transform.position); }
+                        catch (System.Exception ex) { Duel.Log("~Secondary explosion failed: " + ex.Message); }
+                        Duel.Log("~Secondary explosion on " + (Duel.Opps.Count > 1 ? o.Label + "'s" : "the opponent's") + " sub (" + magnitude + ")");
+                    }
+                    return true;
+                }
                 case G_DECAL:
                 {
                     string comp = r.ReadString(); bool destroyed = r.ReadBoolean(); int decal = r.ReadInt32();
@@ -692,6 +704,28 @@ namespace ColdWatersMP
         {
             try { Weapons.BeforeOwnDecal(__instance, destroyed, ref placedDecalID); }
             catch (System.Exception ex) { Duel.Log("~Hull damage decal send failed: " + ex.Message); }
+        }
+    }
+}
+
+namespace ColdWatersMP
+{
+    /// <summary>Secondary explosions (Compartment.ApplyExplosion after a hit, DamageSystem.CheckBurning later): the game
+    /// draws a fireball and smoke cloud at the surface above the damaged vessel, only in the game of the sub that was hit.
+    /// Ours go to the other players, who show the same one above our puppet.</summary>
+    [HarmonyPatch(typeof(Database), "CreateExplosion")]
+    static class Patch_CreateExplosion
+    {
+        static void Prefix(Vessel activeVessel, int magnitude)
+        {
+            try
+            {
+                if (!Duel.InDuel || Duel.Session == null || activeVessel == null || !activeVessel.playercontrolled) return;
+                int m = magnitude;
+                Duel.Session.SendGame(Weapons.G_EXPLOSION, w => w.Write(m), true);
+                Duel.Log("~Secondary explosion on our sub (" + m + "), sent");
+            }
+            catch (System.Exception ex) { Duel.Log("~Secondary explosion send failed: " + ex.Message); }
         }
     }
 }
