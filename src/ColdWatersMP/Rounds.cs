@@ -18,19 +18,35 @@ namespace ColdWatersMP
 
         public static void BeginOwnFire(Component weapon)
         {
-            _ownFiring = false;
+            _ownFiring = false; _lastStarted = null;
             if (!Duel.InDuel || weapon == null) return;
             Vessel v = weapon.GetComponentInParent<Vessel>();
             _ownFiring = v == null || v.playercontrolled; // Player_* weapons only exist on the player's vessel
         }
 
-        public static void EndOwnFire() { _ownFiring = false; }
+        static Projectile_DepthCharge _lastStarted;
 
-        /// <summary>Projectile_DepthCharge.Start postfix: a round we just fired; send it to the others.</summary>
+        /// <summary>Projectile_DepthCharge.Start postfix inside a Fire call: remember the round. The pool also calls Start on
+        /// a reused round when it hands it out (ObjectPool.Instanciate: SendMessage("Start")), BEFORE the weapon has aimed
+        /// it; sending at that first Start gave every copy the same unaimed path (Raf's test 27 Nov: tight group, wrong
+        /// place, no hits). So the round is sent when the Fire call ends, as the game left it.</summary>
         public static void OnStarted(Projectile_DepthCharge dc)
         {
-            if (!_ownFiring || dc == null || !Duel.InDuel || Duel.Session == null) return;
-            _ownFiring = false; // one round per Fire call
+            if (_ownFiring && dc != null) _lastStarted = dc;
+        }
+
+        public static void EndOwnFire()
+        {
+            Projectile_DepthCharge dc = _lastStarted;
+            _lastStarted = null;
+            bool firing = _ownFiring;
+            _ownFiring = false;
+            if (firing && dc != null) Send(dc);
+        }
+
+        static void Send(Projectile_DepthCharge dc)
+        {
+            if (!Duel.InDuel || Duel.Session == null) return;
             try
             {
                 Transform t = dc.transform;
@@ -144,12 +160,12 @@ namespace ColdWatersMP
         static int _logged;
         static void Prefix(Projectile_DepthCharge __instance)
         {
-            if (!Duel.InDuel || __instance == null || __instance.isNavalShell || _logged > 60) return;
+            if (!Duel.InDuel || __instance == null || _logged > 80) return;
             try
             {
                 _logged++;
                 Vector3 p = __instance.transform.position;
-                string s = "~Rounds: " + (__instance.whichNavy == 0 ? "our" : "opponent's") + " mortar round exploded at " + ((1000f - p.y) * GameDataManager.unitsToFeet).ToString("F0") + " ft";
+                string s = "~Rounds: " + (__instance.whichNavy == 0 ? "our" : "opponent's") + (__instance.isNavalShell ? " shell" : " mortar round") + " exploded at " + ((1000f - p.y) * GameDataManager.unitsToFeet).ToString("F0") + " ft";
                 Vessel own = GameDataManager.playervesselsonlevel != null && GameDataManager.playervesselsonlevel.Length > 0 ? GameDataManager.playervesselsonlevel[0] : null;
                 if (own != null) s += " | our vessel " + Describe(p, own);
                 foreach (Opponent o in Duel.InGame) if (o.Puppet != null) s += " | " + o.Label + " " + Describe(p, o.Puppet);
