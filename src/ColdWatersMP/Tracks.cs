@@ -321,9 +321,91 @@ namespace ColdWatersMP
             float lkDiff;
             LastKnown lk = NearestLastKnown(brg, out lkDiff);
             if (lk != null) { Revive(lk, i, lkDiff); return; }
+            if (PlanSplit(i, brg)) return;
             if (rejected.Length > 0 || _lastKnown.Count > 0)
                 Duel.Log("~Track: new contact on slot " + i + " at brg " + brg.ToString("F0") + " is not near a lost track or last-known marker:" + rejected
                     + (_lastKnown.Count > 0 ? " (" + _lastKnown.Count + " marker(s) further off)" : ""));
+        }
+
+        // ---------- track swap (Raf, 27 Nov) ----------
+        // A new opponent-side contact first heard within BearingLimit of a contact we track (a decoy fired while we
+        // hold the sub, or the reverse) used to come up as the new number, which told the decoy from the sub. The game
+        // still names it as usual ("new contact S2"); after that, a coin decides whether the two swap identities: the old
+        // track (name, classification, solution, "decoy?" note) moves to the new contact and the tracked one becomes the
+        // fresh S2. A sonar crew can't tell which of two diverging contacts is the old one either. In both cases the old
+        // contact's trail is cleared (else the long trail marks the continuous one) and the player's selection follows
+        // the old label.
+        static int _splitNew = -1, _splitOld = -1; static bool _splitSwap; static float _splitDiff;
+        static readonly System.Random _rng = new System.Random();
+
+        static bool PlanSplit(int i, float brg)
+        {
+            int best = -1; float bestDiff = BearingLimit;
+            foreach (int d in _slots)
+            {
+                if (d == i || !HasName(d) || !Detected(d) || Ghosts.IsUncloaked(d)) continue;
+                float b = BearingTo(d);
+                if (float.IsNaN(b)) continue;
+                float diff = Mathf.Abs(Mathf.DeltaAngle(brg, b));
+                if (diff <= bestDiff) { bestDiff = diff; best = d; }
+            }
+            if (best < 0) return false;
+            _splitNew = i; _splitOld = best; _splitSwap = _rng.Next(2) == 1; _splitDiff = bestDiff;
+            return true;
+        }
+
+        /// <summary>ContactDetected postfix: carry out a planned split once the game has named the new contact.</summary>
+        public static void AfterContactDetected(int i)
+        {
+            if (_splitNew != i) return;
+            int d = _splitOld, n = _splitNew; bool swap = _splitSwap;
+            _splitNew = -1; _splitOld = -1;
+            if (!Duel.InDuel || !HasName(d) || !HasName(n)) return;
+            SensorManager sm = SM;
+            string oldName = sm.initialDetectedByPlayerName[d], newName = sm.initialDetectedByPlayerName[n];
+            MapContact[] mcs = sm.tacticalmap.mapContact;
+            if (d < mcs.Length && mcs[d] != null) sm.tacticalmap.ClearMapContactTrail(mcs[d], true);
+            if (swap)
+            {
+                SwapSlots(d, n);
+                PlayerFunctions pf = UIFunctions.globaluifunctions.playerfunctions;
+                if (pf.currentTargetIndex == d) pf.currentTargetIndex = n;
+                else if (pf.currentTargetIndex == n) pf.currentTargetIndex = d;
+            }
+            Duel.Log("~Track split: new contact " + newName + " (slot " + n + ") " + _splitDiff.ToString("F0") + " deg from " + oldName + " (slot " + d + "): "
+                + (swap ? oldName + " moves to slot " + n + ", slot " + d + " becomes " + newName : "kept"));
+        }
+
+        static void Swap<T>(T[] a, int x, int y) { if (a == null || x >= a.Length || y >= a.Length) return; T t = a[x]; a[x] = a[y]; a[y] = t; }
+
+        /// <summary>Everything that makes a contact track, between two slots: name, classification, identification,
+        /// solution, estimated position, labels, colours and the player's decoy notes.</summary>
+        static void SwapSlots(int x, int y)
+        {
+            SensorManager sm = SM;
+            Swap(sm.initialDetectedByPlayerName, x, y);
+            Swap(sm.initialDetectedByPlayer, x, y);
+            Swap(sm.classifiedByPlayer, x, y);
+            Swap(sm.classifiedByPlayerAsClass, x, y);
+            Swap(sm.identifiedByPlayer, x, y);
+            Swap(sm.solutionQualityOfContacts, x, y);
+            Swap(sm.timeTrackingContact, x, y);
+            Swap(sm.solutionRangeErrors, x, y);
+            Swap(sm.enemyPositions, x, y);
+            MapContact[] mcs = sm.tacticalmap.mapContact;
+            if (x < mcs.Length && y < mcs.Length && mcs[x] != null && mcs[y] != null)
+            {
+                MapContact a = mcs[x], b = mcs[y];
+                string t = a.contactText.text; a.contactText.text = b.contactText.text; b.contactText.text = t;
+                t = a.contactTextShort; a.contactTextShort = b.contactTextShort; b.contactTextShort = t;
+                Color c = a.contactText.color; a.contactText.color = b.contactText.color; b.contactText.color = c;
+                if (a.shipDisplayIcon != null && b.shipDisplayIcon != null)
+                {
+                    c = a.shipDisplayIcon.color; a.shipDisplayIcon.color = b.shipDisplayIcon.color; b.shipDisplayIcon.color = c;
+                    Sprite s = a.shipDisplayIcon.sprite; a.shipDisplayIcon.sprite = b.shipDisplayIcon.sprite; b.shipDisplayIcon.sprite = s;
+                }
+            }
+            Ghosts.SwapMarks(x, y);
         }
 
         static void Transfer(int from, int to, float diff)
@@ -449,6 +531,12 @@ namespace ColdWatersMP
         {
             try { Tracks.BeforeContactDetected(i); }
             catch (System.Exception ex) { Duel.Log("~Track check failed: " + ex.Message); }
+        }
+
+        static void Postfix(int i)
+        {
+            try { Tracks.AfterContactDetected(i); }
+            catch (System.Exception ex) { Duel.Log("~Track split failed: " + ex.Message); }
         }
     }
 }

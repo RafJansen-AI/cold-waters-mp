@@ -188,6 +188,19 @@ namespace ColdWatersMP
         public static bool IsUncloaked(int i) { return _uncloaked.Contains(i); }
 
         /// <summary>A contact track moved to another slot: the player's "decoy?" note goes with it.</summary>
+        /// <summary>Two contact tracks swapped slots (Tracks split): the player's notes go with their labels.</summary>
+        public static void SwapMarks(int x, int y)
+        {
+            bool nx = _marked.Remove(x), ny = _marked.Remove(y);
+            bool cx = _uncloaked.Remove(x), cy = _uncloaked.Remove(y);
+            if (nx || cx) Unmark(x);
+            if (ny || cy) Unmark(y);
+            if (nx) _marked.Add(y);
+            if (ny) _marked.Add(x);
+            if (cx) _uncloaked.Add(y);
+            if (cy) _uncloaked.Add(x);
+        }
+
         public static void MoveTrackMarks(int from, int to)
         {
             bool note = _marked.Remove(from), confirmed = _uncloaked.Remove(from);
