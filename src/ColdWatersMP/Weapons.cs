@@ -592,6 +592,30 @@ namespace ColdWatersMP
         }
     }
 
+    /// <summary>The player's helicopter drops its torpedo itself (DotModPlayerAircraft.DropWeapon: Instantiate +
+    /// InitialiseTorpedo), not through FireTube. Capture it the same way and send it as a launch from the drop point.</summary>
+    [HarmonyPatch(typeof(DotModPlayerAircraft), "DropWeapon")]
+    static class Patch_HelicopterDropWeapon
+    {
+        static void Prefix() { Patch_FireTube.InFireTube = true; Patch_FireTube.Launched = null; }
+
+        static void Postfix()
+        {
+            Patch_FireTube.InFireTube = false;
+            Torpedo t = Patch_FireTube.Launched;
+            Patch_FireTube.Launched = null;
+            // Sent like a rocket's payload (no carrier): the others get no launch transient from our ship's position.
+            if (Duel.InDuel && t != null) { Duel.Log("Helicopter dropped a torpedo"); Weapons.OnPlayerFired(t, true, null); }
+        }
+
+        static System.Exception Finalizer(System.Exception __exception)
+        {
+            Patch_FireTube.InFireTube = false;
+            Patch_FireTube.Launched = null;
+            return __exception;
+        }
+    }
+
     /// <summary>FireTube lets enemy AI react to the player's launch transient. In a duel the only
     /// enemy is the puppet, whose AI is off, and its attack code throws. The opponent hears our
     /// launch in their own game instead (Weapons.LaunchTransient).</summary>

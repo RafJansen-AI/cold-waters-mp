@@ -270,6 +270,19 @@ damage puppets (the puppet's own game reports damage, as for torpedoes).
   The result line counts torpedoes only. Diagnostics: a "~Rounds: ... mortar round exploded at" line per round
   (first 60 per mission).
 
+## Helicopter torpedoes (27 Nov, built, NOT tested; Raf tests in a bigger session)
+`DotModPlayerAircraft.DropWeapon` creates the torpedo itself (Instantiate + InitialiseTorpedo), so the `FireTube` hook
+missed it. A patch on `DropWeapon` captures it the same way and sends it as a launch from the drop point, flagged like
+a rocket's payload, so the other games give no launch transient from the ship's position (a helicopter drop is not
+heard as a launch from the ship). Log line on the ship's side: "Helicopter dropped a torpedo".
+
+What to check in the test:
+- Ship side: "Helicopter dropped a torpedo" then "Fired torpedo #N"; sub side: "Opponent fired torpedo #N" with no
+  "Launch transient" line; the torpedo runs from the drop point in both games, and a hit is reported both ways.
+- The helicopter itself is not shown in the sub's game (expected for now).
+- The "shot down" message seen in single player on 27 Nov: does the helicopter get shot down in a duel, and by what?
+- Guns at longer range, RBU against a deep sub (fuse depth vs sub depth), RBU copies falling short (2 of 12 seen).
+
 ## Order of work
 0. **Look first**: load a `_pl` ship in the testing grounds on a test copy without a duel, to see the controls, HUD
    (does `HudFix` handle `default_usn`?), helicopter panel and VLS in normal play.
