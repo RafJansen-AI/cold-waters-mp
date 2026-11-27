@@ -4,6 +4,8 @@
 
 > Status: **early test version.** It works end to end (tested GOG to GOG over LAN, Radmin VPN and Tailscale), but expect rough edges. Bug reports are welcome (see [Troubleshooting](#troubleshooting)).
 
+**Community:** find opponents, get help and share your duels on the [Cold Waters MP Discord](https://discord.gg/GxX6mU42ne).
+
 ## What you get
 
 - **Full duel sync:** movement, sonar (passive and active), torpedoes, missiles with torpedo payloads, noisemakers, damage and sinking, all in both games.
@@ -116,7 +118,7 @@ Setup: run `Uninstall.cmd`. JSGME: disable the mod (BepInEx leaves its own logs 
 - **No MULTIPLAYER button:** check that `winhttp.dll` and `BepInEx` sit next to `ColdWaters.exe`. Then open `BepInEx\LogOutput.log` and look for `Cold Waters MP ... loaded`.
 - **Can't connect:** check the address, whether the host has started hosting, the Windows firewall (UDP 7777 on the host), and whether your VPN is connected on both PCs. Without a VPN: the port forward (UDP, not TCP, to the host's current local address) and whether the host is behind carrier-grade NAT (see *Direct, without a VPN*).
 - **"Refused: ... differs":** the two installs differ. Use the same mod version, and put back any edited game files (or reinstall DotMod) on one side.
-- **Bug report:** open an issue with `BepInEx\LogOutput.log` from both players and what happened.
+- **Bug report:** open an issue with `BepInEx\LogOutput.log` from both players and what happened. For quick help, ask in #tech-support on the [Discord](https://discord.gg/GxX6mU42ne).
 
 ## For developers
 
