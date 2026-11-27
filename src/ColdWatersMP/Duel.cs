@@ -227,6 +227,11 @@ namespace ColdWatersMP
             d.numberOfAircraft = 0;
             // Enemy 0 is the opponent; enemies 1.. are ghost subs for their decoys (same class, parked until used).
             int n = 1 + Ghosts.Slots;
+            // The game caps the enemy list at GameDataManager.maxShips (15). Team battles need more: raise it when
+            // the duel plus room for neutral traffic (up to 8) would not fit. Its sonar and map arrays follow the
+            // actual list length. A 1v1 duel (6 + 8) stays under 15.
+            int need = n + 8;
+            if (need > GameDataManager.maxShips) { Log("~Ship cap raised from " + GameDataManager.maxShips + " to " + need); GameDataManager.maxShips = need; }
             int sid = UIFunctions.globaluifunctions.database.databaseshipdata[oppCls].shipID;
             d.enemyShipBehaviour = new string[n];
             d.kmShipClasses = new int[n];
