@@ -44,7 +44,7 @@ namespace ColdWatersMP
         // nav marker came out tiny and on top of the cross, Raf 27 Nov), and takes the slot label's scale each frame.
         class LastKnown
         {
-            public GameObject Marker, Holder; public Transform Label, RefLabel;
+            public GameObject Marker, Holder; public Transform Label; public RectTransform Ship;
             public string Name, Text, TextShort; public bool Classified; public int ClassAs = -1, Slot = -1;
             public float X, Z;
         }
@@ -81,25 +81,28 @@ namespace ColdWatersMP
             lk.Marker = tm.navMarkers[free];
             if (lk.Marker == null) { Duel.Log("~Last known marker for " + lk.Text + " not placed"); return; }
             lk.Marker.name = "CWMP last known " + lk.Text;
-            // The label: a copy of the contact's map marker (its layout and font), icon hidden, at the cross's position.
+            // The cross is only the handle (slot, shift-click delete): invisible. What shows is a faded copy of the
+            // contact's own map marker (icon and label, as the game draws contacts) at the same spot.
+            Image handle = lk.Marker.GetComponent<Image>();
+            if (handle != null) { Color hc0 = handle.color; hc0.a = 0f; handle.color = hc0; }
             GameObject h = (GameObject)Object.Instantiate(mc.gameObject);
             h.transform.SetParent(mc.transform.parent, false);
             h.transform.localRotation = mc.transform.localRotation;
             h.transform.localScale = mc.transform.localScale;
             h.transform.localPosition = new Vector3(lk.X * tm.zoomFactor, lk.Z * tm.zoomFactor, -5f);
-            h.name = "CWMP last known label " + lk.Text;
+            h.name = "CWMP last known " + lk.Text;
             MapContact hc = h.GetComponent<MapContact>();
             Text txt = hc != null && hc.contactText != null ? hc.contactText : h.GetComponentInChildren<Text>(true);
             Image icon = hc != null ? hc.shipDisplayIcon : null;
+            lk.Ship = hc != null ? hc.shipRectTransform : null;
             if (hc != null) Object.Destroy(hc);
             foreach (Button b in h.GetComponentsInChildren<Button>(true)) Object.Destroy(b);
             foreach (LineRenderer l in h.GetComponentsInChildren<LineRenderer>(true)) l.enabled = false;
-            foreach (Graphic g in h.GetComponentsInChildren<Graphic>(true)) if (g != txt) g.enabled = false; // icon, trail dots: the cross stands in
-            if (icon != null) icon.enabled = false;
-            if (txt != null) { txt.text = lk.Text + "?"; txt.raycastTarget = false; Color tc = txt.color; tc.a = 0.6f; txt.color = tc; lk.Label = txt.transform; }
+            if (txt != null) { txt.text = lk.Text + "?"; txt.raycastTarget = false; Color tc = txt.color; tc.a = 0.45f; txt.color = tc; lk.Label = txt.transform; }
+            if (icon != null) { Color ic = icon.color; ic.a = 0.35f; icon.color = ic; icon.raycastTarget = false; }
             h.SetActive(true);
             lk.Holder = h;
-            lk.RefLabel = mc.contactText != null ? mc.contactText.transform : null;
+            SizeLastKnown(lk, tm);
             _lastKnown.Add(lk);
             Duel.Log("~Last known marker \"" + lk.Text + "?\" left at map " + lp.x.ToString("F0") + "," + lp.y.ToString("F0") + " (nav marker " + (free + 1) + " of " + tm.navMarkers.Length + ")");
         }
@@ -108,6 +111,7 @@ namespace ColdWatersMP
         static void UpdateLastKnown()
         {
             if (_lastKnown.Count == 0) return;
+            TacticalMap tm = SM.tacticalmap;
             for (int k = _lastKnown.Count - 1; k >= 0; k--)
             {
                 LastKnown lk = _lastKnown[k];
@@ -117,9 +121,21 @@ namespace ColdWatersMP
                     if (lk.Holder != null) Object.Destroy(lk.Holder);
                     _lastKnown.RemoveAt(k); continue;
                 }
-                // TacticalMapZoom sets every mapContact label's scale on zoom, shown or hidden: follow the slot's label
-                if (lk.Label != null && lk.RefLabel != null) lk.Label.localScale = lk.RefLabel.localScale;
+                SizeLastKnown(lk, tm);
             }
+        }
+
+        /// <summary>What TacticalMapZoom does to every mapContact on a zoom: label scale and offset, icon size.</summary>
+        static void SizeLastKnown(LastKnown lk, TacticalMap tm)
+        {
+            if (tm == null) return;
+            float t = tm.textMinMaxSize, icon = tm.iconSize * tm.orthFactor;
+            if (lk.Label != null)
+            {
+                lk.Label.localScale = new Vector3(t, t, t);
+                lk.Label.localPosition = new Vector3(0f, tm.textYOffset * tm.orthFactor, 0f);
+            }
+            if (lk.Ship != null) lk.Ship.sizeDelta = new Vector2(icon, icon);
         }
 
         /// <summary>The live last-known marker nearest in bearing to brg (within BearingLimit), or null.</summary>
