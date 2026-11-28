@@ -2,13 +2,16 @@
 // DotMod's player helicopter (DotModPlayerAircraft) has no sensors: it flies waypoints and drops torpedoes. The AI
 // helicopter dips (Helicopter.CheckDippingSonar) with its type's sonar (SH-60B AQS-13F, Helix, Hormone, Lynx, Z-9 ...).
 // Here a player helicopter that hovers (airborne, almost no speed) dips: after each of the game's own sonar sweeps
-// (SensorManager.SonarCheck, every 8 s of game time) it runs the game's detection sums from its own position:
-//   passive: target noise (GetVesselNoiseLevel) - (spreading + attenuation + sea ambient - passive sensitivity)
-//   active:  sonar output - 2 x (spreading + attenuation) + target reflection x 0.8 - sea ambient + active sensitivity
-// (a hovering helicopter adds no own-speed noise; no layer or convergence zone bonus yet). A detection is given to the
-// player's contact picture with the game's ContactDetected and TMA update, and the ship's own sweep does not drop a
-// contact the helicopter heard in the last 12 s. Active when the ship's active sonar is on; an active dip is announced to
-// the other players. Applies in single player too. Untested (28 Nov).
+// (SensorManager.SonarCheck, every 8 s of game time) it listens from its own position with the sums the game uses for a
+// dipping AI helicopter (SensorManager.CheckSingleSonar, HELICOPTER branch): spreading and attenuation loss, sea ambient
+// (a helicopter has no own noise), layer bonus (a dip counts as above the layer), convergence zone bonus, masking by
+// terrain or a louder vessel on the line, land masking, its sonar's passive sensitivity, and for an active dip the
+// game's active return (sonar output, target reflection and aspect, active sensitivity). Not copied: the game's call
+// only works for AI listeners and counts the player's reflection and raw vessel noise, so the target's noise here is
+// the one our own sonar hears (GetVesselNoiseLevel, with the multiplayer corrections). A detection goes into the
+// player's contact picture (ContactDetected, TMA update); the ship's sweep does not drop a contact the helicopter heard
+// in the last 12 s. Active when the ship's active sonar is on; an active dip is announced to the other players.
+// Applies in single player too. Untested (28 Nov).
 using System.Collections.Generic;
 using System.IO;
 using HarmonyLib;
@@ -24,6 +27,7 @@ namespace ColdWatersMP
 
         static readonly Dictionary<int, float> _heldUntil = new Dictionary<int, float>(); // enemy index -> time
         static readonly Dictionary<DotModPlayerAircraft, bool> _dipping = new Dictionary<DotModPlayerAircraft, bool>();
+        static System.Reflection.MethodInfo _noise, _cz, _activeNoise, _calculateTma;
 
         public static bool Holds(int i)
         {
@@ -65,24 +69,60 @@ namespace ColdWatersMP
             DatabaseSonarData[] sonars = UIFunctions.globaluifunctions.database.databasesonardata;
             DatabaseSonarData ps = sonars[a.databaseaircraftdata.passiveSonarID];
             DatabaseSonarData asd = active ? sonars[a.databaseaircraftdata.activeSonarID] : null;
-            Vector3 hp = a.transform.position;
-            float ambient = sm.currentOceanAmbientNoise;
+            Transform ht = a.transform;
+            Vector3 hp = ht.position;
+            float ambient = sm.currentOceanAmbientNoise;   // a helicopter has no own noise (the game's listener ambient)
             float threshold = sm.detectionThresholds.x;
+            if (_noise == null)
+            {
+                _noise = AccessTools.Method(typeof(SensorManager), "GetVesselNoiseLevel");
+                _cz = AccessTools.Method(typeof(SensorManager), "GetConvergenceZoneBonus");
+                _activeNoise = AccessTools.Method(typeof(SensorManager), "GetActiveSonarNoise");
+                _calculateTma = AccessTools.Method(typeof(SensorManager), "CalculatePlayerTMA");
+            }
             int found = 0;
             for (int i = 0; i < ev.Length; i++)
             {
                 Vessel v = ev[i];
                 if (v == null || v.isSinking || !v.gameObject.activeInHierarchy) continue;
-                float m = Vector3.Distance(new Vector3(hp.x, 1000f, hp.z), v.transform.position) * GameDataManager.yardsScale * 0.9144f;
+                // As SensorManager.CheckSingleSonar does for a dipping AI helicopter (HELICOPTER listener branch).
+                Vector3 tp = v.transform.position, dir = tp - hp;
+                float dist = dir.magnitude;
+                float m = dist * GameDataManager.yardsScale * 0.9144f;
                 if (m < 1f) m = 1f;
-                float loss = sm.spreadingFactor * Mathf.Log10(m) + sm.attenuationFactor * m;
-                float signal;
-                if (active) signal = asd.sonarOutput - 2f * loss + v.databaseshipdata.activesonarreflection * 0.8f - ambient + asd.sonarActiveSensitivity;
-                else
+                float atten = sm.attenuationFactor * m, spread = sm.spreadingFactor * Mathf.Log10(m);
+                float cz = sm.convergenceZoneStrength > 0f ? (float)_cz.Invoke(sm, new object[] { m, a.gameObject, v.gameObject }) : 0f;
+                bool targetAbove = v.acoustics == null || v.acoustics.currentlyAboveLayer;
+                float layer = sm.GetLayerBonus(ht, true, v.transform, targetAbove); // the game counts a dip as above the layer
+                float noise = (float)_noise.Invoke(sm, new object[] { v });           // as our own sonar hears this vessel
+                float signal = noise - (spread + ambient - layer - cz + atten - ps.sonarPassiveSensitivity);
+                float act = float.MinValue;
+                if (active)
                 {
-                    float noise = (float)AccessTools.Method(typeof(SensorManager), "GetVesselNoiseLevel").Invoke(sm, new object[] { v });
-                    signal = noise - (loss + ambient - ps.sonarPassiveSensitivity);
+                    float angle = Vector3.Angle(dir, v.transform.forward);
+                    act = (float)_activeNoise.Invoke(sm, new object[] { m, spread, ambient, layer, cz, angle, v.databaseshipdata.activesonarreflection, asd.sonarOutput, atten })
+                          + asd.sonarActiveSensitivity;
                 }
+                // Masking: terrain, or a louder vessel on the line (passive only), as the game does.
+                RaycastHit hit;
+                if (signal > 0f && dist > 0f && Physics.Raycast(hp, dir / dist, out hit, dist, sm.maskingLayers))
+                {
+                    if (hit.collider.gameObject.layer == 14) signal /= Random.Range(3f, 4f);
+                    else
+                    {
+                        int k;
+                        if (int.TryParse(hit.collider.name, out k) && k != i && k >= 0 && k < ev.Length && ev[k] != null)
+                        {
+                            float mk = Vector3.Distance(ev[k].transform.position, hp) * GameDataManager.yardsScale * 0.9144f;
+                            if (mk < 1f) mk = 1f;
+                            float masker = (float)_noise.Invoke(sm, new object[] { ev[k] }) - (sm.spreadingFactor * Mathf.Log10(mk) + ambient + sm.attenuationFactor * mk - ps.sonarPassiveSensitivity);
+                            if (masker > signal) signal /= Random.Range(3f, 4f);
+                        }
+                    }
+                }
+                float land = sm.GetLandMaskingPenalty(ht, v.transform);
+                if (land > 0f) { signal /= land; if (active) act /= land; }
+                if (act > signal) signal = act;
                 if (signal <= threshold) continue;
                 found++;
                 bool already = sm.detectedByPlayer != null && i < sm.detectedByPlayer.Length && sm.detectedByPlayer[i];
@@ -90,10 +130,10 @@ namespace ColdWatersMP
                 try
                 {
                     if (!already) sm.ContactDetected(i, "SONAR");
-                    AccessTools.Method(typeof(SensorManager), "CalculatePlayerTMA").Invoke(sm, new object[] { i, active });
+                    _calculateTma.Invoke(sm, new object[] { i, active });
                 }
                 catch (System.Exception ex) { Duel.Log("~Dipping sonar contact update failed: " + ex.Message); }
-                if (!already) Duel.Log("~Dipping sonar (" + (active ? "active" : "passive") + ") detected vessel " + i + " (" + v.databaseshipdata.shipPrefabName + ") at " + (m / 914.4f).ToString("F1") + " kyd, signal " + signal.ToString("F1"));
+                if (!already) Duel.Log("~Dipping sonar (" + (active ? "active" : "passive") + ") detected vessel " + i + " (" + v.databaseshipdata.shipPrefabName + ") at " + (m / 914.4f).ToString("F1") + " kyd, signal " + signal.ToString("F1") + " (layer " + layer.ToString("+0.0;-0.0") + ", CZ " + cz.ToString("+0.0;-0.0") + ")");
             }
         }
 

@@ -305,7 +305,7 @@ What to check in the test:
 - Guns at longer range, RBU against a deep sub (fuse depth vs sub depth), RBU copies falling short (2 of 12 seen).
 
 ## Status before Raf's big test (28 Nov)
-Built since the last tests, none tested in a game yet (DLL DA048683 in MP/MP2/MP3):
+Built since the last tests, none tested in a game yet (DLL DE9278B8 in MP/MP2/MP3):
 - **Missiles, the defender decides** (`Weapons.cs` G_TORP_DOWN, `Missiles.cs` G_CHAFF). Shoot-downs by guns or SAMs
   happen in the defender's game on its copy of the missile (`Torpedo.ShootMissileDown`; SAMs are Torpedo objects too,
   `CheckWithinSensorAngles` rolls the hit). The defender now reports it: the firer shoots its real missile down, other
@@ -316,7 +316,8 @@ Built since the last tests, none tested in a game yet (DLL DA048683 in MP/MP2/MP
 - **Towed decoys (Nixie)**: see step 7. Check: "Opponent's towed decoy: long tow, ACTIVE" in the firer's log.
 - **Dipping sonar** (`Dipping.cs`): a hovering player helicopter with a sonar dips after each sonar sweep; passive, or
   active when the ship's active sonar is on (active dips announced to others with a bearing). Contacts go into the
-  normal picture and are held 12 s. No layer/CZ bonus yet. Check: "Helicopter is dipping its sonar", "Dipping sonar
+  normal picture and are held 12 s. The sums follow the game's own AI dip (CheckSingleSonar, helicopter branch: layer,
+  CZ, masking, land masking, active return by aspect), with the target noise our own sonar hears. Check: "Helicopter is dipping its sonar", "Dipping sonar
   (passive|active) detected vessel ...".
 - **Wording**: vessel instead of sub in player-facing messages.
 Looked into, no change: the helicopter torpedo that hit its own Perry was dropped ~400 yd from it and searched; the
