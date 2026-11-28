@@ -305,7 +305,7 @@ What to check in the test:
 - Guns at longer range, RBU against a deep sub (fuse depth vs sub depth), RBU copies falling short (2 of 12 seen).
 
 ## Status before Raf's big test (28 Nov)
-Built since the last tests, none tested in a game yet (DLL 735C5E7D in MP/MP2/MP3):
+Built since the last tests, none tested in a game yet (DLL DA048683 in MP/MP2/MP3):
 - **Missiles, the defender decides** (`Weapons.cs` G_TORP_DOWN, `Missiles.cs` G_CHAFF). Shoot-downs by guns or SAMs
   happen in the defender's game on its copy of the missile (`Torpedo.ShootMissileDown`; SAMs are Torpedo objects too,
   `CheckWithinSensorAngles` rolls the hit). The defender now reports it: the firer shoots its real missile down, other
@@ -325,7 +325,18 @@ game lets any player torpedo home on its own vessel (the player is always in the
   helicopter 5 times a second; the others build it like an AI helicopter (`VesselBuilder.CreateAircraft`) with all
   scripts, colliders and physics off, and move it. Visual only. Check: "~...'s helicopter is airborne" in the other log,
   and the model in the periscope or 3D view (rotor blades only turn if the model names them "rotor").
-Still open: SAMs vs helicopters, SAM launches and CIWS fire visible to the
+- **SAMs and guns vs helicopters** (`Helos.cs`, G_HELO_DOWN 28): an enemy player's helicopter (not a team-mate's) also
+  goes into the game's enemy helicopter list (`CombatAI.enemyHelicopters`) with a map icon, durability 100 and the
+  parts the game's code reads (sensor data, body, rigidbody), like a mission's AI helicopter. So the defender's radar,
+  Scan Air, SAM (`Torpedo` interceptMode AIRCRAFT, `CheckWithinSensorAngles`: in the interception radius, then the
+  hit roll) and CIWS (`Player_AntiMissileGuns`, durability down per burst) engage it. A kill (durability 0, the game
+  adds `BoomAir`) is sent to everyone; the owner sets its helicopter's `Durability` to 0 (what DotMod's own SAMs do in
+  `MissileHome.Tick`), the copies fall into the sea. Only kills are shared, CIWS damage short of a kill is not.
+  Taken out of the list before the game's `DestroyAllAircraft`. Check: "~...'s helicopter is airborne (...), an air
+  target", Scan Air lines to it, "We shot down ...'s helicopter", "Our helicopter was shot down" in the owner's log.
+  Watch: does the opponent's puppet (an AI ship) also fire DotMod SAMs at the owner's helicopter in the owner's game
+  (a second, local kill source)? Is the map icon always shown, or only when detected?
+Still open: SAM launches and CIWS fire visible to the
 firer (only the results are synced), surface-ship MOSS (step 8), result line counts torpedoes only, trim diagnostics.
 
 ## Order of work

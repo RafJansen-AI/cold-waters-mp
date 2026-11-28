@@ -444,6 +444,8 @@ namespace ColdWatersMP
         /// <summary>Who starts together: the lobby teams when there are two, else everyone on their own (free for all).</summary>
         static int GroupOf(int id, int team) { return _teamsPlay ? team : id; }
         static bool _teamsPlay;
+        /// <summary>A player on our side in a team battle (their helicopter is not an air target for us).</summary>
+        public static bool IsAlly(Opponent o) { return o != null && _teamsPlay && o.Team == MyTeam; }
 
         /// <summary>Host: start positions for every player in the mission. The host's group stays where the mission put the
         /// host (new random heading); every other group goes somewhere in the range band off the host's bow. Geometry
