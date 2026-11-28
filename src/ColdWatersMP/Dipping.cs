@@ -292,6 +292,14 @@ namespace ColdWatersMP
         }
 
         const float MinGain = 3f, MaxGain = 12f;   // solution % per passive dip detection (every sweep, 8 s); balance later
+
+        /// <summary>The difficulty's PlayerTMARate, which CalculatePlayerTMA multiplies its gains by (the AI helicopter's
+        /// detection total uses EnemyTMARate the same way). 1 if it can't be read.</summary>
+        static float TmaRate()
+        {
+            try { float r = OptionsManager.difficultySettings["PlayerTMARate"]; return r > 0f ? r : 1f; }
+            catch (System.Exception) { return 1f; }
+        }
         static float _solLogAt;
 
         /// <summary>The helicopter is a sensor of its own (Raf, 28 Nov): every passive detection builds the solution, whether
@@ -305,14 +313,14 @@ namespace ColdWatersMP
             if (q == null || i >= q.Length) return;
             float cap = UIFunctions.globaluifunctions.playerfunctions.maximumPlayerTMA;
             if (cap <= 0f) cap = 100f;
-            float gain = Mathf.Clamp(margin * 0.5f, MinGain, MaxGain);
+            float gain = Mathf.Clamp(margin * 0.5f, MinGain, MaxGain) * TmaRate(); // as fast as the game's own TMA at this difficulty
             float before = q[i];
             q[i] = Mathf.Min(cap, q[i] + gain);
             if (err != null && i < err.Length) err[i] = Mathf.Lerp(err[i], 1f, 0.25f);
             if (Time.time - _solLogAt > 20f)
             {
                 _solLogAt = Time.time;
-                Duel.Log("~Dipping solution on vessel " + i + ": +" + gain.ToString("F0") + "% (signal " + margin.ToString("F0") + " dB over threshold), " + before.ToString("F0") + " -> " + q[i].ToString("F0") + "% (limit " + cap.ToString("F0") + ")");
+                Duel.Log("~Dipping solution on vessel " + i + ": +" + gain.ToString("F1") + "% (TMA rate " + TmaRate().ToString("F2") + ", signal " + margin.ToString("F0") + " dB over threshold), " + before.ToString("F0") + " -> " + q[i].ToString("F0") + "% (limit " + cap.ToString("F0") + ")");
             }
         }
 
