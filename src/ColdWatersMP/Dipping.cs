@@ -401,6 +401,40 @@ namespace ColdWatersMP
         }
     }
 
+    /// <summary>Clicking a torpedo or vessel on the map takes the camera to it (PlayerFunctions.MapTorpedoButton:
+    /// CloseCombatScreens, SkyObjectCenterer.ForceSkyboxPosition, ManualCameraZoom.minDistance); DotMod's helicopter
+    /// icon only selects the helicopter for orders (SelectAircraft), so the camera stayed put (Raf, 28 Nov; F4 did work).
+    /// The icon's button now does both. Single player too.</summary>
+    [HarmonyPatch(typeof(DotModPlayerAircraft), "CreateTacMapIcon")]
+    static class Patch_PlayerAircraftIcon_Camera
+    {
+        static void Postfix(DotModPlayerAircraft __instance)
+        {
+            try
+            {
+                UnityEngine.UI.Button b = __instance.TacMapIcon != null ? __instance.TacMapIcon.GetComponentInChildren<UnityEngine.UI.Button>() : null;
+                if (b == null) return;
+                DotModPlayerAircraft a = __instance;
+                b.onClick.AddListener(() => Focus(a));
+            }
+            catch (System.Exception ex) { Duel.Log("~Helicopter icon camera hook failed: " + ex.Message); }
+        }
+
+        static void Focus(DotModPlayerAircraft a)
+        {
+            if (a == null || !a.IsAirborne || a.IsDestroyed) return;
+            try
+            {
+                UIFunctions ui = UIFunctions.globaluifunctions;
+                ui.playerfunctions.eventcamera.enabled = false; // as the F4 key (Camera To Aircraft)
+                ui.CloseCombatScreens();
+                ui.skyobjectcenterer.ForceSkyboxPosition(a.transform);
+                if (a.databaseaircraftdata != null) ManualCameraZoom.minDistance = a.databaseaircraftdata.minCameraDistance;
+            }
+            catch (System.Exception ex) { Duel.Log("~Helicopter camera failed: " + ex.Message); }
+        }
+    }
+
     [HarmonyPatch(typeof(DotModPlayerAircraft), "Update")]
     static class Patch_PlayerAircraftUpdate_Cable
     {
