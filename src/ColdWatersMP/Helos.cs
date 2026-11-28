@@ -259,6 +259,35 @@ namespace ColdWatersMP
             finally { AddFields.dippingListeningTimer = was; }
         }
 
+        /// <summary>The parts of Helicopter.Update an AI helicopter runs for the player's sake, which our copy (scripts off)
+        /// needs too: (1) its map icon is shown only while the player's radar mast is up and working (or the debug "truth
+        /// is out there"); before, the opponent's helicopter was on the map all the time and gave the launching ship away
+        /// (Raf, 28 Nov). (2) aquiredByAAM counts our SAMs going for it (the per-target missile limit).</summary>
+        static void AsAiHelicopter(Remote r)
+        {
+            Helicopter h = r.H;
+            PlayerFunctions pf = UIFunctions.globaluifunctions.playerfunctions;
+            SensorManager sm = pf.sensormanager;
+            int n = 0;
+            Torpedo[] ts = sm.torpedoObjects;
+            if (ts != null)
+                foreach (Torpedo t in ts)
+                    if (t != null && t.whichNavy == 0 && t.interceptMode == "AIRCRAFT" && t.targetTransform == r.Go.transform) n++;
+            h.aquiredByAAM = n;
+
+            bool show = false;
+            if (pf.damagecontrol.CheckSubsystem("RADAR_MAST", false))
+            {
+                Vessel own = GameDataManager.playervesselsonlevel[0];
+                show = own.submarineFunctions != null && own.submarineFunctions.GetMastIsUp(2);
+            }
+            if (sm.truthIsOutThere) show = true;
+            if (h.tacMapHelicopterIcon == null) return;
+            GameObject icon = h.tacMapHelicopterIcon.gameObject;
+            if (show && !icon.activeSelf && h.durability > 0f) icon.SetActive(true);
+            else if (!show && icon.activeSelf) icon.SetActive(false);
+        }
+
         /// <summary>The dip is over (cable up, helicopter shot down or gone): its icon goes too (Raf, 28 Nov: it stayed
         /// after the helicopter moved on).</summary>
         static void ClearDipIcon(Remote r)
@@ -307,6 +336,7 @@ namespace ColdWatersMP
                 }
                 if (Time.time - r.Last > 5f) { if (stale == null) stale = new List<int>(); stale.Add(kv.Key); continue; }
                 if (r.Cable <= -0.349f && Time.time - r.IconAt > DipIconSeconds) PlaceDipIcon(r, r.Pos); // still dipping: renew the icon
+                if (r.Target && r.H != null) { try { AsAiHelicopter(r); } catch (System.Exception) { } }
                 Transform t = r.Go.transform;
                 if (Vector3.Distance(t.position, r.Pos) > 2f) t.position = r.Pos; // > ~150 yd: snap
                 else t.position = Vector3.Lerp(t.position, r.Pos, Mathf.Min(1f, Time.deltaTime * 6f));
