@@ -304,6 +304,26 @@ What to check in the test:
 - The "shot down" message seen in single player on 27 Nov: does the helicopter get shot down in a duel, and by what?
 - Guns at longer range, RBU against a deep sub (fuse depth vs sub depth), RBU copies falling short (2 of 12 seen).
 
+## Status before Raf's big test (28 Nov)
+Built since the last tests, none tested in a game yet (DLL 735C5E7D in MP/MP2/MP3):
+- **Missiles, the defender decides** (`Weapons.cs` G_TORP_DOWN, `Missiles.cs` G_CHAFF). Shoot-downs by guns or SAMs
+  happen in the defender's game on its copy of the missile (`Torpedo.ShootMissileDown`; SAMs are Torpedo objects too,
+  `CheckWithinSensorAngles` rolls the hit). The defender now reports it: the firer shoots its real missile down, other
+  copies are removed (before: the copy burned on, the firer never knew). Chaff: the defender's `DeployChaff` rolls
+  against that missile; the cloud and the result go to everyone, and a fooled missile is pointed at the chaff in the
+  firer's game. Check: Harpoon vs a ship with CIWS/SAM/chaff, log lines "SHOT DOWN", "decoyed by chaff".
+- **Hit sound**: gun hits play DotMod's unused "Small/Med Explosion 3" (below / from 5 in).
+- **Towed decoys (Nixie)**: see step 7. Check: "Opponent's towed decoy: long tow, ACTIVE" in the firer's log.
+- **Dipping sonar** (`Dipping.cs`): a hovering player helicopter with a sonar dips after each sonar sweep; passive, or
+  active when the ship's active sonar is on (active dips announced to others with a bearing). Contacts go into the
+  normal picture and are held 12 s. No layer/CZ bonus yet. Check: "Helicopter is dipping its sonar", "Dipping sonar
+  (passive|active) detected vessel ...".
+- **Wording**: vessel instead of sub in player-facing messages.
+Looked into, no change: the helicopter torpedo that hit its own Perry was dropped ~400 yd from it and searched; the
+game lets any player torpedo home on its own vessel (the player is always in the target list), single player too.
+Still open: helicopter visible to the opponent (and SAMs vs helicopters), SAM launches and CIWS fire visible to the
+firer (only the results are synced), surface-ship MOSS (step 8), result line counts torpedoes only, trim diagnostics.
+
 ## Order of work
 0. **Look first**: load a `_pl` ship in the testing grounds on a test copy without a duel, to see the controls, HUD
    (does `HudFix` handle `default_usn`?), helicopter panel and VLS in normal play.
