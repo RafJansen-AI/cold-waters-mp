@@ -345,6 +345,12 @@ game lets any player torpedo home on its own vessel (the player is always in the
   dipped, and my "speed below 3" test was meaningless (DotMod speed is in game units: it counted as dipping all flight).
   A helicopter with a dipping sonar now hovers at its last waypoint instead of orbiting, and dips while it hovers
   (state `AircraftOrbit`). New log line every sweep while dipping: `~Dip listen: vessel N at X kyd, signal ...`.
+  Duel 28 Nov 07:00: hover worked, the dip heard the sub at 1.7 kyd (signal 17.7). Then: the helicopter descends to the
+  template's dip altitude and pays out the cable from the game's helicopter template (DotMod skips
+  DippingSonarPosition for player aircraft; the spot is read from a throwaway AI copy per type), 0.02 units/s to 0.35
+  as the AI; it listens only with the cable down, reels in when it leaves. The cable length goes to the others (G_HELO
+  +1 float). Igla copy invisible: missile trails start in Torpedo.FixedUpdate, which copies skip; now started in
+  DrivePuppetTorpedo (anti-ship missile copies too), SAM copies in anti-air mode.
 Still open: SAM launches and CIWS fire visible to the
 firer (only the results are synced), surface-ship MOSS (step 8), result line counts torpedoes only, trim diagnostics.
 

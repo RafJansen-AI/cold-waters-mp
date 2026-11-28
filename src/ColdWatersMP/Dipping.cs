@@ -34,7 +34,12 @@ namespace ColdWatersMP
             return _heldUntil.TryGetValue(i, out t) && Time.time < t;
         }
 
-        public static void Reset() { _heldUntil.Clear(); _dipping.Clear(); }
+        public static void Reset()
+        {
+            _heldUntil.Clear(); _dipping.Clear();
+            foreach (Gear g in _gear.Values) if (g.Line != null) Object.Destroy(g.Line.gameObject);
+            _gear.Clear();
+        }
 
         /// <summary>A helicopter type with a dipping sonar (aircraft data PassiveSonarModel).</summary>
         public static bool HasDippingSonar(DotModPlayerAircraft a)
@@ -48,6 +53,140 @@ namespace ColdWatersMP
             return a.IsAirborne && !a.IsDestroyed && HasDippingSonar(a) && a.State == "AircraftOrbit";
         }
 
+        /// <summary>Hovering with the sonar fully lowered: only then does it listen (as the AI: Helicopter.FixedUpdate
+        /// calls CheckDippingSonar once the cable is down).</summary>
+        public static bool IsDipping(DotModPlayerAircraft a)
+        {
+            Gear g;
+            return IsHovering(a) && _gear.TryGetValue(a, out g) && g.Height <= CableDown + 0.001f;
+        }
+
+        // ---------- the dip itself: descend, pay out the cable, reel in ----------
+        // As the AI helicopter: it flies at dipaltitude while dipping (Helicopter.Navigation) and lowers its sonar
+        // (a LineRenderer at the type's DippingSonarPosition) 0.02 units/s to 0.35 units (Helicopter.FixedUpdate).
+        // DotMod builds the player's helicopter without the cable (CreateAndPlaceAircraftMeshes skips
+        // DippingSonarPosition for player aircraft), so the cable comes from the game's helicopter template, placed where
+        // an AI copy of the same type has it.
+        const float CableDown = -0.35f, CableRate = 0.02f, DescentRate = 0.12f;
+
+        class Gear { public LineRenderer Line; public float Height; }
+        static readonly Dictionary<DotModPlayerAircraft, Gear> _gear = new Dictionary<DotModPlayerAircraft, Gear>();
+        static readonly Dictionary<int, Vector3> _cableSpot = new Dictionary<int, Vector3>();   // aircraft type -> local position
+        static GameObject _template;
+        static float _dipAltitude = -1f;
+
+        static GameObject Template()
+        {
+            if (_template == null) _template = Resources.Load("template_objects/helicopterTemplate") as GameObject;
+            return _template;
+        }
+
+        static float DipAltitude()
+        {
+            if (_dipAltitude < 0f)
+            {
+                float v = 0f;
+                try { GameObject t = Template(); Helicopter h = t != null ? t.GetComponent<Helicopter>() : null; if (h != null) v = h.dipaltitude; }
+                catch (System.Exception) { }
+                _dipAltitude = v > 1000.02f && v < 1003f ? v : 1000.15f;
+                Duel.Log("~Dipping altitude " + _dipAltitude.ToString("F3") + " (template " + v.ToString("F3") + ")");
+            }
+            return _dipAltitude;
+        }
+
+        /// <summary>Where this type hangs its cable, relative to the aircraft: from a throwaway AI copy, once per type.</summary>
+        static Vector3 CableSpot(int aircraftId)
+        {
+            Vector3 spot;
+            if (_cableSpot.TryGetValue(aircraftId, out spot)) return spot;
+            spot = Vector3.zero;
+            GameObject go = null;
+            try
+            {
+                go = UIFunctions.globaluifunctions.vesselbuilder.CreateAircraft(aircraftId, new Vector3(0f, -500f, 0f), Quaternion.identity, true);
+                Helicopter h = go != null ? go.GetComponent<Helicopter>() : null;
+                if (h != null && h.sonarLine != null) spot = go.transform.InverseTransformPoint(h.sonarLine.transform.position);
+            }
+            catch (System.Exception ex) { Duel.Log("~Dipping cable position not found: " + ex.Message); }
+            finally { if (go != null) { go.SetActive(false); Object.Destroy(go); } }
+            _cableSpot[aircraftId] = spot;
+            return spot;
+        }
+
+        static Gear GearOf(DotModPlayerAircraft a)
+        {
+            Gear g;
+            if (_gear.TryGetValue(a, out g) && (g.Line != null || g.Height == 0f)) return g;
+            g = new Gear();
+            try
+            {
+                GameObject t = Template();
+                Helicopter th = t != null ? t.GetComponent<Helicopter>() : null;
+                if (th != null && th.sonarLine != null)
+                {
+                    GameObject lg = (GameObject)Object.Instantiate(th.sonarLine.gameObject);
+                    lg.name = "CWMP dipping sonar";
+                    Transform holder = Traverse.Create(a).Field("meshHolder").GetValue<Transform>() ?? a.transform;
+                    lg.transform.SetParent(holder, false);
+                    lg.transform.localPosition = CableSpot(a.databaseaircraftdata.aircraftID);
+                    lg.transform.localRotation = Quaternion.identity;
+                    g.Line = lg.GetComponent<LineRenderer>();
+                    lg.SetActive(false);
+                }
+            }
+            catch (System.Exception ex) { Duel.Log("~Dipping cable not made: " + ex.Message); }
+            _gear[a] = g;
+            return g;
+        }
+
+        static void SetCable(Gear g, float h)
+        {
+            g.Height = h;
+            if (g.Line == null) return;
+            g.Line.gameObject.SetActive(h < 0f);
+            if (h < 0f) g.Line.SetPosition(1, new Vector3(0f, h, 0f));
+        }
+
+        /// <summary>Each frame while hovering (orbit state): down to dipping height, then the cable down.</summary>
+        public static void HoverTick(DotModPlayerAircraft a)
+        {
+            a.DemandSpeed = 0f;
+            a.CurrentSpeed = 0f;
+            Gear g = GearOf(a);
+            Vector3 p = a.transform.position;
+            float dipY = DipAltitude();
+            if (Mathf.Abs(p.y - dipY) > 0.001f)
+            {
+                p.y = Mathf.MoveTowards(p.y, dipY, DescentRate * Time.deltaTime);
+                a.transform.position = p;
+                return;
+            }
+            if (g.Height > CableDown) SetCable(g, Mathf.MoveTowards(g.Height, CableDown, CableRate * Time.deltaTime));
+        }
+
+        /// <summary>After DotMod's Update: reel the cable in when the helicopter is no longer hovering.</summary>
+        public static void AfterAircraftUpdate(DotModPlayerAircraft a)
+        {
+            Gear g;
+            if (!_gear.TryGetValue(a, out g) || g.Height == 0f) return;
+            if (!IsHovering(a)) SetCable(g, 0f);
+        }
+
+        /// <summary>The cable's length now (0 = stowed, -0.35 = down), for the other players' copies.</summary>
+        public static float CableOf(DotModPlayerAircraft a)
+        {
+            Gear g;
+            return _gear.TryGetValue(a, out g) ? g.Height : 0f;
+        }
+
+        /// <summary>Another player's helicopter copy (built as an AI helicopter, so it has its cable): show the length.</summary>
+        public static void ShowCable(Helicopter h, float height)
+        {
+            if (h == null || h.sonarLine == null) return;
+            h.sonarLine.gameObject.SetActive(height < 0f);
+            if (height < 0f) h.sonarLine.SetPosition(1, new Vector3(0f, height, 0f));
+        }
+
         /// <summary>SonarCheck postfix: every hovering player helicopter with a sonar listens (or pings) once.</summary>
         public static void AfterSonarCheck(SensorManager sm)
         {
@@ -58,7 +197,7 @@ namespace ColdWatersMP
             foreach (DotModPlayerAircraft a in all)
             {
                 if (a == null || a.databaseaircraftdata == null) continue;
-                bool dip = IsHovering(a);
+                bool dip = IsDipping(a);
                 bool was;
                 _dipping.TryGetValue(a, out was);
                 if (dip != was)
@@ -134,7 +273,7 @@ namespace ColdWatersMP
                 float land = sm.GetLandMaskingPenalty(ht, v.transform);
                 if (land > 0f) { signal /= land; if (active) act /= land; }
                 if (act > signal) signal = act;
-                Duel.Log("~Dip listen: vessel " + i + " at " + (m / 914.4f).ToString("F1") + " kyd, signal " + signal.ToString("F1") + " (threshold " + threshold.ToString("F1") + ", noise " + noise.ToString("F1") + ", layer " + layer.ToString("+0.0;-0.0") + ", CZ " + cz.ToString("+0.0;-0.0") + ", land x" + land.ToString("F2") + (active ? ", active " + act.ToString("F1") : "") + ")");
+                if (Duel.InDuel && Duel.IsPuppet(v)) Duel.Log("~Dip listen: vessel " + i + " at " + (m / 914.4f).ToString("F1") + " kyd, signal " + signal.ToString("F1") + " (threshold " + threshold.ToString("F1") + ", noise " + noise.ToString("F1") + ", layer " + layer.ToString("+0.0;-0.0") + ", CZ " + cz.ToString("+0.0;-0.0") + ", land x" + land.ToString("F2") + (active ? ", active " + act.ToString("F1") : "") + ")");
                 if (signal <= threshold) continue;
                 found++;
                 bool already = sm.detectedByPlayer != null && i < sm.detectedByPlayer.Length && sm.detectedByPlayer[i];
@@ -200,10 +339,16 @@ namespace ColdWatersMP
         static bool Prefix(DotModPlayerAircraft ___aircraft)
         {
             if (!Dipping.HasDippingSonar(___aircraft)) return true;
-            ___aircraft.DemandSpeed = 0f;
-            ___aircraft.CurrentSpeed = 0f;
+            try { Dipping.HoverTick(___aircraft); }
+            catch (System.Exception ex) { Duel.Log("~Hover failed: " + ex.Message); ___aircraft.DemandSpeed = 0f; ___aircraft.CurrentSpeed = 0f; }
             return false;
         }
+    }
+
+    [HarmonyPatch(typeof(DotModPlayerAircraft), "Update")]
+    static class Patch_PlayerAircraftUpdate_Cable
+    {
+        static void Postfix(DotModPlayerAircraft __instance) { try { Dipping.AfterAircraftUpdate(__instance); } catch (System.Exception) { } }
     }
 
     /// <summary>The ship's own sweep does not drop a contact the helicopter's dipping sonar holds.</summary>

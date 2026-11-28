@@ -156,6 +156,7 @@ namespace ColdWatersMP
             t.whichNavy = 1;
             t.onWire = false;
             t.usesParachute = payload; // rocket payloads come down under a parachute
+            if (sam) t.interceptMode = "AIRCRAFT"; // InitialiseTorpedo: anti-air mode, the SAM's own trail
             t.InitialiseTorpedo();
             if (payload) t.isAirborne = true;
             _puppetTorps.Add(t);
@@ -233,6 +234,14 @@ namespace ColdWatersMP
             foreach (KeyValuePair<int, Incoming> kv in _incoming) if (kv.Value.T == t) { id = kv.Key; inc = kv.Value; break; }
             if (inc == null) return;
             string tag = Tag(inc.Firer, inc.Id);
+
+            // A missile's smoke trail is switched on in Torpedo.FixedUpdate once it is out of the water, which a copy skips:
+            // the Igla copy flew with no trail and could not be seen (Raf, 28 Nov). Switch it on here the same way.
+            if (t.missileTrail != null && !t.missileTrail.gameObject.activeSelf && t.transform.position.y > 1000f && !t.shotDown && !t.destroyMe)
+            {
+                try { t.missileTrail.gameObject.SetActive(true); t.missileTrail.Play(); }
+                catch (System.Exception) { }
+            }
 
             // A missile shot down here, by our guns or SAMs (Torpedo.ShootMissileDown). The copy only follows the firer's
             // states, so it burned on and the firer never knew (Raf, 27 Nov). Our game decides: tell everyone, remove ours.

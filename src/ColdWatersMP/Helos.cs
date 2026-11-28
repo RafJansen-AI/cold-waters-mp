@@ -24,7 +24,7 @@ namespace ColdWatersMP
         class Remote
         {
             public GameObject Go; public int AircraftId, Owner, Slot;
-            public Vector3 Pos; public Quaternion Rot; public float Last;
+            public Vector3 Pos; public Quaternion Rot; public float Last, Cable;
             public List<Transform> Rotors = new List<Transform>();
             public Helicopter H;          // the game's helicopter component (in the enemy list when Target)
             public bool Target;           // registered as an enemy air target
@@ -52,12 +52,12 @@ namespace ColdWatersMP
                     if (a == null || a.databaseaircraftdata == null || !a.IsAirborne || a.IsDestroyed) continue;
                     now.Add(slot);
                     int s = slot, id = a.databaseaircraftdata.aircraftID;
-                    Vector3 p = a.transform.position; Quaternion q = a.transform.rotation;
+                    Vector3 p = a.transform.position; Quaternion q = a.transform.rotation; float cable = Dipping.CableOf(a);
                     Duel.Session.SendGame(G_HELO, w =>
                     {
                         w.Write(s); w.Write(id);
                         w.Write(p.x); w.Write(p.y); w.Write(p.z);
-                        w.Write(q.x); w.Write(q.y); w.Write(q.z); w.Write(q.w);
+                        w.Write(q.x); w.Write(q.y); w.Write(q.z); w.Write(q.w); w.Write(cable);
                     }, false);
                 }
             }
@@ -97,6 +97,7 @@ namespace ColdWatersMP
             foreach (Transform t in go.GetComponentsInChildren<Transform>(true))
                 if (t != go.transform && t.name.ToLowerInvariant().Contains("rotor")) r.Rotors.Add(t);
             r.H = go.GetComponent<Helicopter>();
+            try { Dipping.ShowCable(r.H, 0f); } catch (System.Exception) { } // the AI build shows its cable; stowed until the owner dips
             if (target && r.H != null)
             {
                 try { MakeTarget(r); }
@@ -198,6 +199,7 @@ namespace ColdWatersMP
             int sl = rd.ReadInt32(), aid = rd.ReadInt32();
             Vector3 p = new Vector3(rd.ReadSingle(), rd.ReadSingle(), rd.ReadSingle());
             Quaternion q = new Quaternion(rd.ReadSingle(), rd.ReadSingle(), rd.ReadSingle(), rd.ReadSingle());
+            float cab = rd.ReadSingle();
             if (!Duel.InDuel || Duel.Session == null || from == Duel.Session.MyId || Duel.InGameById(from) == null) return true;
             int key = Key(from, sl);
             if (_down.Contains(key)) return true;
@@ -214,6 +216,7 @@ namespace ColdWatersMP
                 Duel.Log("~" + (o != null ? o.Label : "player " + from) + "'s helicopter is airborne (" + UIFunctions.globaluifunctions.database.databaseaircraftdata[aid].aircraftPrefabName + ")" + (r.Target ? ", an air target" : ""));
             }
             r.Pos = p; r.Rot = q; r.Last = Time.time;
+            if (cab != r.Cable) { r.Cable = cab; try { Dipping.ShowCable(r.H, cab); } catch (System.Exception) { } }
             return true;
         }
 
