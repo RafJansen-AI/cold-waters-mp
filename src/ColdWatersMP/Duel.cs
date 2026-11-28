@@ -883,6 +883,7 @@ namespace ColdWatersMP
             Weapons.Reset();
             Rounds.Reset();
             Ghosts.Reset();
+            Helos.Reset();
             Tracks.Reset();
             _oppColorLogged = false;
             Ambient.Reset();
@@ -910,6 +911,7 @@ namespace ColdWatersMP
             try { Tracks.Update(); } catch (System.Exception ex) { Log("~Track update failed: " + ex.Message); }
             try { ApplyOpponentColor(); } catch (System.Exception) { }
             try { Ambient.Update(); } catch (System.Exception ex) { Log("~Neutral update failed: " + ex.Message); }
+            try { Helos.Update(); } catch (System.Exception ex) { Log("~Helicopter update failed: " + ex.Message); }
             Weapons.Update();
         }
 
@@ -988,6 +990,7 @@ namespace ColdWatersMP
             if (Rounds.OnMessage(type, r)) return;
             if (Missiles.OnMessage(type, r)) return;
             if (Dipping.OnMessage(type, r)) return;
+            if (Helos.OnMessage(type, r)) return;
             if (EnvSync.OnMessage(type, r)) return;
             if (Match.OnMessage(type, r)) return;
             if (TimeSync.OnMessage(type, r)) return;

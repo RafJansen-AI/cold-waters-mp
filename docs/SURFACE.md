@@ -321,7 +321,11 @@ Built since the last tests, none tested in a game yet (DLL 735C5E7D in MP/MP2/MP
 - **Wording**: vessel instead of sub in player-facing messages.
 Looked into, no change: the helicopter torpedo that hit its own Perry was dropped ~400 yd from it and searched; the
 game lets any player torpedo home on its own vessel (the player is always in the target list), single player too.
-Still open: helicopter visible to the opponent (and SAMs vs helicopters), SAM launches and CIWS fire visible to the
+- **Helicopter visible to the other players** (`Helos.cs`, G_HELO 26 / G_HELO_GONE 27): the owner sends each airborne
+  helicopter 5 times a second; the others build it like an AI helicopter (`VesselBuilder.CreateAircraft`) with all
+  scripts, colliders and physics off, and move it. Visual only. Check: "~...'s helicopter is airborne" in the other log,
+  and the model in the periscope or 3D view (rotor blades only turn if the model names them "rotor").
+Still open: SAMs vs helicopters, SAM launches and CIWS fire visible to the
 firer (only the results are synced), surface-ship MOSS (step 8), result line counts torpedoes only, trim diagnostics.
 
 ## Order of work
