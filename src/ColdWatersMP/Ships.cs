@@ -134,12 +134,17 @@ namespace ColdWatersMP
             catch (System.Exception) { return 0; }
         }
 
+        /// <summary>True while Apply changes a puppet's decoy (DotMod's own local checks may not).</summary>
+        public static bool Applying;
+        static float _diagAt;
+
         /// <summary>Make a puppet's decoy match its player's (only what differs, so DotMod's messages and checks run once).</summary>
         public static void Apply(Opponent o, byte want)
         {
             Vessel v = o.Puppet;
             DotModTowedDecoy d = v != null && v.vesselmovement != null ? v.vesselmovement.towedDecoy : null;
             if (d == null) return;
+            Applying = true;
             try
             {
                 bool destroyed = (want & 16) != 0, damaged = (want & 8) != 0, deployed = (want & 1) != 0, shortStay = (want & 2) != 0, active = (want & 4) != 0;
@@ -148,6 +153,7 @@ namespace ColdWatersMP
                 if (destroyed) return;
                 if (deployed != d.GetDeployed() || (deployed && shortStay != d.isShortStay)) d.SetDeployed(deployed, shortStay);
                 if (deployed && active != d.GetDecoyActive()) d.SetDecoyActive(active);
+                if (active && Time.time - _diagAt > 10f) { _diagAt = Time.time; Diag(o, d); }
                 if (want != o.LastDecoy)
                 {
                     o.LastDecoy = want;
@@ -155,6 +161,46 @@ namespace ColdWatersMP
                 }
             }
             catch (System.Exception) { } // before DotMod's Start has run
+            finally { Applying = false; }
+        }
+
+        /// <summary>What the puppet's decoy really is in our game (duel 28 Nov: active per the owner, but our torpedoes
+        /// never went for it).</summary>
+        static void Diag(Opponent o, DotModTowedDecoy d)
+        {
+            try
+            {
+                Noisemaker nm = Traverse.Create(d).Field("noisemaker").GetValue<Noisemaker>();
+                GameObject obj = Traverse.Create(d).Field("decoyObject").GetValue<GameObject>();
+                Noisemaker[] list = UIFunctions.globaluifunctions.playerfunctions.sensormanager.noisemakerObjects;
+                bool listed = nm != null && list != null && System.Array.IndexOf(list, nm) >= 0;
+                float yd = nm != null ? Vector3.Distance(nm.transform.position, o.Puppet.transform.position) * GameDataManager.yardsScale : -1f;
+                Duel.Log("~Puppet towed decoy: deployed " + d.GetDeployed() + ", active " + d.GetDecoyActive() + ", damaged " + d.isDamaged
+                    + ", noisemaker in list " + listed + ", object shown " + (obj != null && obj.activeInHierarchy) + ", " + yd.ToString("F0") + " yd from the puppet"
+                    + (nm != null ? ", depth " + ((1000f - nm.transform.position.y) * GameDataManager.unitsToFeet).ToString("F0") + " ft" : ""));
+            }
+            catch (System.Exception ex) { Duel.Log("~Puppet towed decoy check failed: " + ex.Message); }
+        }
+    }
+
+    /// <summary>DotMod damages a towed decoy itself when the towing vessel is faster than the decoy's maximum or slower than
+    /// the towed array's minimum (DotModTowedDecoy.Update). A puppet's decoy follows its player's state instead; a local
+    /// check against the AI twin's limits could break it in the firer's game, where it has to seduce the torpedoes.</summary>
+    [HarmonyPatch(typeof(DotModTowedDecoy), "SetDamaged")]
+    static class Patch_TowedDecoy_SetDamaged
+    {
+        static float _loggedAt = -100f;
+
+        static bool Prefix(bool damaged, Vessel ___vessel)
+        {
+            if (!damaged || !Duel.InDuel || Decoys.Applying || ___vessel == null || !Duel.IsPuppet(___vessel)) return true;
+            if (Time.time - _loggedAt > 10f)
+            {
+                _loggedAt = Time.time;
+                Duel.Log("~Kept the puppet's towed decoy working: DotMod would have damaged it locally (puppet speed "
+                    + (___vessel.vesselmovement.shipSpeed.z * 10f).ToString("F1") + " kt, decoy max " + ___vessel.databaseshipdata.towedDecoyMaxSpeed + ", array min " + ___vessel.databaseshipdata.towedArrayMinSpeed + ")");
+            }
+            return false;
         }
     }
 

@@ -32,6 +32,7 @@ namespace ColdWatersMP
         static string Tag(Opponent firer, int id) { return (Duel.Opps.Count > 1 ? firer.Label + "'s torpedo #" : "Opponent torpedo #") + id; }
         static readonly HashSet<Torpedo> _puppetTorps = new HashSet<Torpedo>();
         static readonly HashSet<int> _onNoisemaker = new HashSet<int>();
+        static readonly HashSet<int> _targetLogged = new HashSet<int>();     // own torpedoes whose first lock was logged
         static readonly Dictionary<int, float> _decoyLogAt = new Dictionary<int, float>();
         static float _sendTimer, _damageTimer;
         static float _lastSentDamage = -1f;
@@ -114,6 +115,8 @@ namespace ColdWatersMP
                 Torpedo dt = (nm == null && t.targetTransform != null) ? t.targetTransform.GetComponent<Torpedo>() : null;
                 bool decoyed = (nm != null && nm.databasecountermeasuredata != null && !nm.databasecountermeasuredata.isWakeBubble)
                     || (dt != null && dt.databaseweapondata != null && dt.databaseweapondata.weaponType == "DECOY");
+                if (t.targetTransform != null && _targetLogged.Add(id))
+                    Duel.Log("~Our torpedo #" + id + " first locked on " + (target >= 0 ? "player " + target + "'s vessel" : nm != null ? (nm.databasecountermeasuredata != null && nm.databasecountermeasuredata.isTowedDecoy ? "a TOWED DECOY" : "a noisemaker") : dt != null ? "a decoy" : t.targetTransform.name));
                 if (decoyed != _onNoisemaker.Contains(id))
                 {
                     if (decoyed) _onNoisemaker.Add(id); else _onNoisemaker.Remove(id);
