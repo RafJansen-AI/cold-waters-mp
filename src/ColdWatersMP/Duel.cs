@@ -985,6 +985,7 @@ namespace ColdWatersMP
         {
             if (Weapons.OnMessage(type, r)) return;
             if (Rounds.OnMessage(type, r)) return;
+            if (Missiles.OnMessage(type, r)) return;
             if (EnvSync.OnMessage(type, r)) return;
             if (Match.OnMessage(type, r)) return;
             if (TimeSync.OnMessage(type, r)) return;

@@ -11,7 +11,7 @@ namespace ColdWatersMP
 {
     public static class Weapons
     {
-        public const byte G_TORP_SPAWN = 5, G_TORP_STATE = 6, G_TORP_END = 7, G_TORP_HIT = 8, G_DAMAGE = 9, G_NOISEMAKER = 11, G_KNUCKLE = 14, G_DECAL = 20, G_EXPLOSION = 21;
+        public const byte G_TORP_SPAWN = 5, G_TORP_STATE = 6, G_TORP_END = 7, G_TORP_HIT = 8, G_DAMAGE = 9, G_NOISEMAKER = 11, G_KNUCKLE = 14, G_DECAL = 20, G_EXPLOSION = 21, G_TORP_DOWN = 23;
 
         class Incoming
         {
@@ -60,6 +60,18 @@ namespace ColdWatersMP
         }
 
         public static bool IsPuppetTorpedo(Torpedo t) { return t != null && _puppetTorps.Contains(t); }
+        /// <summary>Which player's torpedo, and its number, this copy is (false if it is not a copy).</summary>
+        public static bool CopyOf(Torpedo t, out int firer, out int id)
+        {
+            firer = -1; id = -1;
+            if (t == null) return false;
+            foreach (KeyValuePair<int, Incoming> kv in _incoming) if (kv.Value.T == t) { firer = kv.Value.Firer.Id; id = kv.Value.Id; return true; }
+            return false;
+        }
+
+        /// <summary>Our own torpedo or missile with this number, or null.</summary>
+        public static Torpedo Own(int id) { Torpedo t; return _own.TryGetValue(id, out t) ? t : null; }
+
         public static bool IsOwnTorpedo(Torpedo t) { return t != null && _ownIds.ContainsKey(t); }
 
         // ---------- firer side ----------
@@ -211,6 +223,16 @@ namespace ColdWatersMP
             if (inc == null) return;
             string tag = Tag(inc.Firer, inc.Id);
 
+            // A missile shot down here, by our guns or SAMs (Torpedo.ShootMissileDown). The copy only follows the firer's
+            // states, so it burned on and the firer never knew (Raf, 27 Nov). Our game decides: tell everyone, remove ours.
+            if (t.shotDown)
+            {
+                int firerId = inc.Firer.Id, torpId = inc.Id;
+                S.SendGame(G_TORP_DOWN, w => { w.Write(firerId); w.Write(torpId); }, true);
+                Duel.Log(tag + " SHOT DOWN by us");
+                Kill(id, true);
+                return;
+            }
             if (t.destroyMe && t.damageDealt == 0)
             {
                 // Flagged without hitting anything (mission teardown, noisemaker, ...): not a hit.
@@ -474,6 +496,28 @@ namespace ColdWatersMP
                     {
                         try { SpawnOpponentNoisemaker(cm, p, e); }
                         catch (System.Exception ex) { Duel.Log("Noisemaker spawn failed: " + ex.Message); }
+                    }
+                    return true;
+                }
+                case G_TORP_DOWN:
+                {
+                    // From a player whose guns or SAMs shot down a missile: (firer, number).
+                    int firerId = r.ReadInt32(); int id = r.ReadInt32();
+                    Opponent by = Duel.InGameById(from);
+                    string who = by != null && Duel.Opps.Count > 1 ? by.Label : "the opponent";
+                    if (firerId == S.MyId)
+                    {
+                        Torpedo t;
+                        if (_own.TryGetValue(id, out t) && t != null && !t.shotDown)
+                        {
+                            try { t.ShootMissileDown(false); } catch (System.Exception ex) { Duel.Log("~Shoot-down failed: " + ex.Message); t.destroyMe = true; }
+                        }
+                        Duel.Log("Our missile #" + id + " was SHOT DOWN by " + who);
+                    }
+                    else
+                    {
+                        Incoming inc;
+                        if (_incoming.TryGetValue(Key(firerId, id), out inc)) { Duel.Log(Tag(inc.Firer, id) + " shot down by " + who); Kill(Key(firerId, id), true); }
                     }
                     return true;
                 }
