@@ -25,6 +25,7 @@ namespace ColdWatersMP
         {
             public GameObject Go; public int AircraftId, Owner, Slot;
             public Vector3 Pos; public Quaternion Rot; public float Last, Cable, IconAt = -100f;
+            public GameObject DipIcon;     // our dipping icon on the map while the cable is down
             public List<Transform> Rotors = new List<Transform>();
             public Helicopter H;          // the game's helicopter component (in the enemy list when Target)
             public bool Target;           // registered as an enemy air target
@@ -166,6 +167,7 @@ namespace ColdWatersMP
         {
             if (r.Down) return;
             r.Down = true; r.DownAt = Time.time;
+            ClearDipIcon(r);
             _down.Add(Key(r.Owner, r.Slot));
             try
             {
@@ -222,6 +224,7 @@ namespace ColdWatersMP
             {
                 // The cable reaches its depth: the dipping icon the game puts on the map for an AI dip
                 // (Helicopter.FixedUpdate: TacticalMap.PlaceHazardIconOnMap(position, 6)), seen even without contact.
+                if (cab > -0.349f && r.Cable <= -0.349f) ClearDipIcon(r); // cable coming up: the dip is over
                 if (cab <= -0.349f && r.Cable > -0.349f)
                 {
                     PlaceDipIcon(r, p);
@@ -239,16 +242,29 @@ namespace ColdWatersMP
         /// icon). Placed again while the cable stays down.</summary>
         static void PlaceDipIcon(Remote r, Vector3 pos)
         {
+            ClearDipIcon(r);
             float was = AddFields.dippingListeningTimer;
             try
             {
                 AddFields.dippingListeningTimer = DipIconSeconds;
+                Transform holder = UIFunctions.globaluifunctions.playerfunctions.sensormanager.tacticalmap.hazardIcons;
+                int before = holder != null ? holder.childCount : 0;
                 UIFunctions.globaluifunctions.playerfunctions.sensormanager.tacticalmap.PlaceHazardIconOnMap(pos, 6);
+                // PlaceHazardIconOnMap adds the icon as the last child of hazardIcons; keep it to take it away again.
+                if (holder != null && holder.childCount > before) r.DipIcon = holder.GetChild(holder.childCount - 1).gameObject;
                 if (r.IconAt < 0f) Duel.Log("~Remote helicopter is dipping: map icon placed");
                 r.IconAt = Time.time;
             }
             catch (System.Exception ex) { Duel.Log("~Dipping icon failed: " + ex.Message); }
             finally { AddFields.dippingListeningTimer = was; }
+        }
+
+        /// <summary>The dip is over (cable up, helicopter shot down or gone): its icon goes too (Raf, 28 Nov: it stayed
+        /// after the helicopter moved on).</summary>
+        static void ClearDipIcon(Remote r)
+        {
+            if (r.DipIcon != null) Object.Destroy(r.DipIcon);
+            r.DipIcon = null;
         }
 
         static void Remove(int key, string why)
@@ -257,6 +273,7 @@ namespace ColdWatersMP
             if (!_remote.TryGetValue(key, out r)) return;
             _remote.Remove(key);
             Unregister(r);
+            ClearDipIcon(r);
             if (r.Go != null) Object.Destroy(r.Go);
             Duel.Log("~Remote helicopter removed (" + why + ")");
         }
@@ -306,7 +323,7 @@ namespace ColdWatersMP
 
         public static void Reset()
         {
-            foreach (Remote r in _remote.Values) { Unregister(r); if (r.Go != null) Object.Destroy(r.Go); }
+            foreach (Remote r in _remote.Values) { Unregister(r); ClearDipIcon(r); if (r.Go != null) Object.Destroy(r.Go); }
             _remote.Clear(); _down.Clear(); _ownAirborne.Clear(); _sendTimer = 0f; OwnKills = 0; OppKills = 0;
         }
     }
