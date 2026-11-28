@@ -269,7 +269,7 @@ namespace ColdWatersMP
             }
             if (GUILayout.Button("Close", GUILayout.Width(100))) { _showSettings = false; _confirmDisconnect = false; }
             GUILayout.EndHorizontal();
-            GUILayout.Label("To play: both connect here, then Single Mission. Pick any mission and your sub; the host's map, conditions and difficulty are used.");
+            GUILayout.Label("To play: both connect here, then Single Mission. Pick any mission and your sub or ship; the host's map, conditions and difficulty are used.");
             GUILayout.Space(6);
         }
 
@@ -304,7 +304,7 @@ namespace ColdWatersMP
                 GUILayout.EndHorizontal();
             }
             if (_session.PlayerCount > 2)
-                GUILayout.Label("Battle (test): every other sub is a contact, teammates too (nothing is shared). Two teams fight it out; with everyone on one team, it is every sub for itself.");
+                GUILayout.Label("Battle (test): every other vessel is a contact, teammates too (nothing is shared). Two teams fight it out; with everyone on one team, it is every sub for itself.");
             GUILayout.Space(6);
         }
 
@@ -316,7 +316,7 @@ namespace ColdWatersMP
             {
                 GUILayout.Label("The host picks the map and conditions.");
                 GUILayout.Label(Match.HaveHostMatch ? "Host's match: " + Match.LastSummary : "Nothing from the host yet: it arrives when the host starts its mission.");
-                GUILayout.Label("Pick any mission and your sub as usual; the host's map replaces your mission's.");
+                GUILayout.Label("Pick any mission and your sub or ship as usual; the host's map replaces your mission's.");
                 if (Match.HaveHostMatch) GUILayout.Label("Pause: " + (Match.PauseBoth ? "Esc pauses both" : "blocked") + ". Time compression: " + (Match.TimeCompressionAllowed ? "when both ask" : "off") + ". Reduced Visibility: " + (Match.ReducedVisibility ? "on" : "off") + ".");
                 GUI.DragWindow();
                 return;

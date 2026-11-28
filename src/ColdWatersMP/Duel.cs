@@ -176,15 +176,15 @@ namespace ColdWatersMP
             {
                 if (Session == null || Session.State != SessionState.Ready || Opps.Count == 0) return "";
                 string s;
-                if (Opps.Count == 1) s = "Opponent sub: " + (Opps[0].Class >= 0 ? Opps[0].ClassName : "not chosen yet");
+                if (Opps.Count == 1) s = "Opponent vessel: " + (Opps[0].Class >= 0 ? Opps[0].ClassName : "not chosen yet");
                 else
                 {
                     int chosen = 0; foreach (Opponent o in Opps) if (o.Class >= 0) chosen++;
-                    s = chosen + " of " + Opps.Count + " other players chose a sub";
+                    s = chosen + " of " + Opps.Count + " other players chose a vessel";
                 }
                 string them = Opps.Count == 1 ? "opponent" : "other players";
                 if (_heldStations != null) s += " | WAITING for the " + them + " to reach battlestations (Ctrl+F8: start anyway)";
-                if (WaitingForOpponentChoice) s += !AllChosen ? " | WAITING for the " + (Opps.Count == 1 ? "opponent's" : "other players'") + " sub choice (Ctrl+F8: start anyway)" : " | WAITING for the host to start (Ctrl+F8: start anyway)";
+                if (WaitingForOpponentChoice) s += !AllChosen ? " | WAITING for the " + (Opps.Count == 1 ? "opponent's" : "other players'") + " vessel choice (Ctrl+F8: start anyway)" : " | WAITING for the host to start (Ctrl+F8: start anyway)";
                 if (Result.Length > 0) s += " | " + Result;
                 if (InDuel)
                 {
@@ -305,7 +305,7 @@ namespace ColdWatersMP
             if (!AllChosen && !_releasingLoad)
             {
                 _heldLoad = llm;
-                Log("Waiting for " + them + " to choose a sub; the mission starts when " + (Opps.Count == 1 ? "it arrives" : "all are in") + " (Ctrl+F8: start anyway)");
+                Log("Waiting for " + them + " to choose a vessel; the mission starts when " + (Opps.Count == 1 ? "it arrives" : "all are in") + " (Ctrl+F8: start anyway)");
                 return false;
             }
             if (!Session.IsHost && !Match.HaveHostMatch && !_releasingLoad)
@@ -796,7 +796,7 @@ namespace ColdWatersMP
         {
             if (_ownSunk || !InDuel) return;
             _ownSunk = true;
-            if (InGame.Count > 1) Say("Our sub is sinking");
+            if (InGame.Count > 1) Say("Our vessel is sinking");
             CheckEnd();
         }
 
@@ -826,9 +826,9 @@ namespace ColdWatersMP
             foreach (Opponent o in InGame) if (!o.Sunk && o.Puppet != null && _opps.ContainsKey(o.Id)) alive.Add(GroupOf(o.Id, o.Team));
             if (alive.Count > 1) return;
             string what;
-            if (alive.Count == 0) what = InGame.Count == 1 ? "DRAW: both subs lost" : "DRAW: every sub lost";
-            else if (alive.Contains(mine)) what = InGame.Count == 1 ? "VICTORY: the opponent's " + InGame[0].ClassName + " is sinking" : (_ownSunk ? "VICTORY for your side (your sub was lost)" : "VICTORY: last side afloat");
-            else what = InGame.Count == 1 ? "DEFEAT: your sub is sinking" : "DEFEAT: your side is out";
+            if (alive.Count == 0) what = InGame.Count == 1 ? "DRAW: both vessels lost" : "DRAW: every vessel lost";
+            else if (alive.Contains(mine)) what = InGame.Count == 1 ? "VICTORY: the opponent's " + InGame[0].ClassName + " is sinking" : (_ownSunk ? "VICTORY for your side (your vessel was lost)" : "VICTORY: last side afloat");
+            else what = InGame.Count == 1 ? "DEFEAT: your vessel is sinking" : "DEFEAT: your side is out";
             if (_resultFinal && Result.StartsWith(what)) return;
             _resultFinal = true;
             float mins = (Time.time - _startTime) / 60f;
