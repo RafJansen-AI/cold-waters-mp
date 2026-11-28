@@ -46,10 +46,14 @@ namespace ColdWatersMP
             _own.Clear(); _ownIds.Clear(); _incoming.Clear(); _puppetTorps.Clear(); _onNoisemaker.Clear(); _decoyLogAt.Clear();
             _lastSentDamage = -1f; _lastSentSinking = false;
             OwnFired = 0; OppFired = 0; OwnHits = 0; OppHits = 0;
+            OwnSams = 0; OppSams = 0; OwnIntercepts = 0; OppIntercepts = 0; OwnDecoyKills = 0; OppDecoyKills = 0; _decoyedCopies.Clear(); _targetLogged.Clear();
         }
 
         // Match statistics (for the result line)
         public static int OwnFired, OppFired, OwnHits, OppHits;
+        public static int OwnSams, OppSams;               // anti-air missiles fired
+        public static int OwnIntercepts, OppIntercepts;   // their missiles we shot down / ours they shot down
+        public static int OwnDecoyKills, OppDecoyKills;   // their torpedoes our towed decoy destroyed / ours theirs did
 
         /// <summary>Client: the host says our torpedo hit a neutral there; explode it here too.</summary>
         public static void OwnTorpedoHitNeutral(int id)
@@ -84,6 +88,7 @@ namespace ColdWatersMP
             S.SendGame(G_TORP_DECOYED, w => { w.Write(firerId); w.Write(id); }, true);
             Opponent f = Duel.InGameById(firerId);
             Duel.Log((f != null ? Tag(f, id) : "Torpedo #" + id) + " destroyed by our towed decoy");
+            OwnDecoyKills++;
         }
 
         public static bool IsOwnTorpedo(Torpedo t) { return t != null && _ownIds.ContainsKey(t); }
@@ -102,7 +107,9 @@ namespace ColdWatersMP
             int id = _nextId++;
             _own[id] = t; _ownIds[t] = id;
             bool decoy = Ghosts.IsDecoy(t.databaseweapondata);
-            if (!payload && !decoy && !sam) OwnFired++;
+            // A helicopter drop is a payload with no carrier: it counts as a torpedo fired (a rocket's payload does not).
+            if ((!payload || carrier == null) && !decoy && !sam) OwnFired++;
+            if (sam) OwnSams++;
             int weaponId = t.databaseweapondata.weaponID;
             Vector3 pos = t.transform.position; Vector3 eul = t.transform.eulerAngles;
             int carrierId = -1;
@@ -159,7 +166,7 @@ namespace ColdWatersMP
 
         // ---------- target side ----------
 
-        static void SpawnPuppetTorpedo(Opponent firer, int id, int weaponId, Vector3 pos, Vector3 eul, bool payload, bool sam)
+        static void SpawnPuppetTorpedo(Opponent firer, int id, int weaponId, Vector3 pos, Vector3 eul, bool payload, bool sam, bool counts)
         {
             if (firer == null || firer.Puppet == null) return;
             int key = Key(firer.Id, id);
@@ -195,9 +202,10 @@ namespace ColdWatersMP
                 // Their anti-air missile, going for an aircraft (ours, here): shown, nothing more. Their game decides the
                 // hit (Helos G_HELO_DOWN); the copy ends with theirs.
                 Duel.Log((Duel.Opps.Count > 1 ? firer.Label : "Opponent") + " fired SAM #" + id + " (" + wd.weaponName + ")");
+                OppSams++;
                 return;
             }
-            if (!payload) OppFired++;
+            if (counts) OppFired++; // a helicopter drop (payload with no carrier) counts, a rocket's payload not
             Duel.Log((Duel.Opps.Count > 1 ? firer.Label : "Opponent") + " fired torpedo #" + id + " (" + wd.weaponName + ")");
             bool heard = false;
             if (!payload) // dropped by a rocket far from the firer: no launch transient
@@ -266,6 +274,7 @@ namespace ColdWatersMP
                 int firerId = inc.Firer.Id, torpId = inc.Id;
                 S.SendGame(G_TORP_DOWN, w => { w.Write(firerId); w.Write(torpId); }, true);
                 Duel.Log(tag + " SHOT DOWN by us");
+                OwnIntercepts++;
                 Kill(id, true);
                 return;
             }
@@ -477,7 +486,7 @@ namespace ColdWatersMP
                         Duel.Log(Tag(carrier.Firer, carrierId) + " released its payload");
                         Kill(Key(from, carrierId), false); // the payload takes over from here
                     }
-                    if (Duel.InDuel && firer != null) SpawnPuppetTorpedo(firer, id, wid, p, e, payload, sam);
+                    if (Duel.InDuel && firer != null) SpawnPuppetTorpedo(firer, id, wid, p, e, payload, sam, !payload || carrierId <= 0);
                     return true;
                 }
                 case G_TORP_STATE:
@@ -554,6 +563,7 @@ namespace ColdWatersMP
                             try { t.ShootMissileDown(false); } catch (System.Exception ex) { Duel.Log("~Shoot-down failed: " + ex.Message); t.destroyMe = true; }
                         }
                         Duel.Log("Our missile #" + id + " was SHOT DOWN by " + who);
+                        OppIntercepts++;
                     }
                     else
                     {
@@ -573,6 +583,7 @@ namespace ColdWatersMP
                         Torpedo t;
                         if (_own.TryGetValue(id, out t) && t != null && !t.destroyMe) t.destroyMe = true; // what DotMod's decoy does to it
                         Duel.Log("Our torpedo #" + id + " was destroyed by " + whose + " towed decoy");
+                        OppDecoyKills++;
                     }
                     else
                     {

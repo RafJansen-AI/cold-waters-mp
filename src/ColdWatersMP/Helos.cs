@@ -35,6 +35,7 @@ namespace ColdWatersMP
         static readonly HashSet<int> _down = new HashSet<int>();                            // shot down this mission: ignore further news
         static readonly HashSet<int> _ownAirborne = new HashSet<int>();                     // our slots last sent as airborne
         static float _sendTimer;
+        public static int OwnKills, OppKills;   // their helicopters we shot down / ours they shot down (result line)
 
         static int Key(int player, int slot) { return (player << 8) | (slot & 0xFF); }
 
@@ -75,6 +76,7 @@ namespace ColdWatersMP
             DotModPlayerAircraft a = all[slot];
             if (a.IsDestroyed) return;
             a.Durability = 0f;
+            OppKills++;
             Opponent o = Duel.InGameById(by);
             string what = "Our helicopter was shot down" + (o != null && Duel.Opps.Count > 1 ? " by " + o.Label : "");
             Duel.Log(what + " (slot " + slot + ")");
@@ -264,6 +266,7 @@ namespace ColdWatersMP
                     Duel.Session.SendGame(G_HELO_DOWN, w => { w.Write(owner); w.Write(slot); }, true);
                     Opponent o = Duel.InGameById(owner);
                     Duel.Log("~We shot down " + (o != null ? o.Label : "player " + owner) + "'s helicopter (slot " + slot + ")");
+                    OwnKills++;
                     Fall(r);
                     continue;
                 }
@@ -285,7 +288,7 @@ namespace ColdWatersMP
         public static void Reset()
         {
             foreach (Remote r in _remote.Values) { Unregister(r); if (r.Go != null) Object.Destroy(r.Go); }
-            _remote.Clear(); _down.Clear(); _ownAirborne.Clear(); _sendTimer = 0f;
+            _remote.Clear(); _down.Clear(); _ownAirborne.Clear(); _sendTimer = 0f; OwnKills = 0; OppKills = 0;
         }
     }
 

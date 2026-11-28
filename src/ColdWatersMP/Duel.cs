@@ -447,6 +447,22 @@ namespace ColdWatersMP
         /// <summary>A player on our side in a team battle (their helicopter is not an air target for us).</summary>
         public static bool IsAlly(Opponent o) { return o != null && _teamsPlay && o.Team == MyTeam; }
 
+        /// <summary>"ours vs theirs" for every weapon used; torpedoes and hits always, the rest only when used.</summary>
+        static string MatchStats()
+        {
+            List<string> p = new List<string>();
+            p.Add("torpedoes/missiles fired " + Weapons.OwnFired + " vs " + Weapons.OppFired);
+            p.Add("hits " + Weapons.OwnHits + " vs " + Weapons.OppHits);
+            int ownShells = Rounds.OwnFired - Rounds.OwnMortars, oppShells = Rounds.OppFired - Rounds.OppMortars;
+            if (ownShells + oppShells > 0) p.Add("shells " + ownShells + " vs " + oppShells);
+            if (Rounds.OwnMortars + Rounds.OppMortars > 0) p.Add("mortar rounds " + Rounds.OwnMortars + " vs " + Rounds.OppMortars);
+            if (Weapons.OwnSams + Weapons.OppSams > 0) p.Add("SAMs " + Weapons.OwnSams + " vs " + Weapons.OppSams);
+            if (Weapons.OwnIntercepts + Weapons.OppIntercepts > 0) p.Add("missiles shot down " + Weapons.OwnIntercepts + " vs " + Weapons.OppIntercepts);
+            if (Weapons.OwnDecoyKills + Weapons.OppDecoyKills > 0) p.Add("torpedoes stopped by towed decoys " + Weapons.OwnDecoyKills + " vs " + Weapons.OppDecoyKills);
+            if (Helos.OwnKills + Helos.OppKills > 0) p.Add("helicopters shot down " + Helos.OwnKills + " vs " + Helos.OppKills);
+            return string.Join(", ", p.ToArray());
+        }
+
         /// <summary>Host: start positions for every player in the mission. The host's group stays where the mission put the
         /// host (new random heading); every other group goes somewhere in the range band off the host's bow. Geometry
         /// (1v1): each sub sees the other within 60 deg of its bow (never in the baffles), so the aspect varies from
@@ -834,8 +850,7 @@ namespace ColdWatersMP
             if (_resultFinal && Result.StartsWith(what)) return;
             _resultFinal = true;
             float mins = (Time.time - _startTime) / 60f;
-            Result = what + " (" + mins.ToString("0.0") + " min; torpedoes fired " + Weapons.OwnFired + " vs " + Weapons.OppFired
-                + ", hits " + Weapons.OwnHits + " vs " + Weapons.OppHits + ")";
+            Result = what + " (" + mins.ToString("0.0") + " min; " + MatchStats() + ")";
             Log("RESULT " + Result);
             Say(what);
         }

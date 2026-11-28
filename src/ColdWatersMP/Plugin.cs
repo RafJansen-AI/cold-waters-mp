@@ -365,6 +365,7 @@ namespace ColdWatersMP
 
         void OnGUI()
         {
+            VesselPicker.OnGUI();
             if (_showSettings) _settingsRect = GUILayout.Window(0xC3A1, _settingsRect, SettingsWindow, "Cold Waters Multiplayer (Ctrl+F6)");
             if (_overlayMode == 2) return;
             if (_overlayMode == 1)
