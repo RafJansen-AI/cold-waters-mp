@@ -216,7 +216,18 @@ namespace ColdWatersMP
                 Duel.Log("~" + (o != null ? o.Label : "player " + from) + "'s helicopter is airborne (" + UIFunctions.globaluifunctions.database.databaseaircraftdata[aid].aircraftPrefabName + ")" + (r.Target ? ", an air target" : ""));
             }
             r.Pos = p; r.Rot = q; r.Last = Time.time;
-            if (cab != r.Cable) { r.Cable = cab; try { Dipping.ShowCable(r.H, cab); } catch (System.Exception) { } }
+            if (cab != r.Cable)
+            {
+                // The cable reaches its depth: the dipping icon the game puts on the map for an AI dip
+                // (Helicopter.FixedUpdate: TacticalMap.PlaceHazardIconOnMap(position, 6)), seen even without contact.
+                if (cab <= -0.349f && r.Cable > -0.349f)
+                {
+                    try { UIFunctions.globaluifunctions.playerfunctions.sensormanager.tacticalmap.PlaceHazardIconOnMap(p, 6); Duel.Log("~Remote helicopter is dipping: map icon placed"); }
+                    catch (System.Exception ex) { Duel.Log("~Dipping icon failed: " + ex.Message); }
+                }
+                r.Cable = cab;
+                try { Dipping.ShowCable(r.H, cab); } catch (System.Exception) { }
+            }
             return true;
         }
 

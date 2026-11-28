@@ -11,7 +11,7 @@ namespace ColdWatersMP
 {
     public static class Weapons
     {
-        public const byte G_TORP_SPAWN = 5, G_TORP_STATE = 6, G_TORP_END = 7, G_TORP_HIT = 8, G_DAMAGE = 9, G_NOISEMAKER = 11, G_KNUCKLE = 14, G_DECAL = 20, G_EXPLOSION = 21, G_TORP_DOWN = 23;
+        public const byte G_TORP_SPAWN = 5, G_TORP_STATE = 6, G_TORP_END = 7, G_TORP_HIT = 8, G_DAMAGE = 9, G_NOISEMAKER = 11, G_KNUCKLE = 14, G_DECAL = 20, G_EXPLOSION = 21, G_TORP_DOWN = 23, G_TORP_DECOYED = 29;
 
         class Incoming
         {
@@ -72,6 +72,19 @@ namespace ColdWatersMP
 
         /// <summary>Our own torpedo or missile with this number, or null.</summary>
         public static Torpedo Own(int id) { Torpedo t; return _own.TryGetValue(id, out t) ? t : null; }
+
+        static readonly HashSet<Torpedo> _decoyedCopies = new HashSet<Torpedo>();
+
+        /// <summary>Target side: our own towed decoy destroyed this copy (Noisemaker.Update, decoy exploder range). Our game
+        /// decides, as for a hit: the firer destroys its real torpedo.</summary>
+        public static void CopyDestroyedByDecoy(Torpedo t)
+        {
+            int firerId, id;
+            if (!CopyOf(t, out firerId, out id) || !_decoyedCopies.Add(t)) return;
+            S.SendGame(G_TORP_DECOYED, w => { w.Write(firerId); w.Write(id); }, true);
+            Opponent f = Duel.InGameById(firerId);
+            Duel.Log((f != null ? Tag(f, id) : "Torpedo #" + id) + " destroyed by our towed decoy");
+        }
 
         public static bool IsOwnTorpedo(Torpedo t) { return t != null && _ownIds.ContainsKey(t); }
 
@@ -254,6 +267,11 @@ namespace ColdWatersMP
                 S.SendGame(G_TORP_DOWN, w => { w.Write(firerId); w.Write(torpId); }, true);
                 Duel.Log(tag + " SHOT DOWN by us");
                 Kill(id, true);
+                return;
+            }
+            if (t.destroyMe && _decoyedCopies.Remove(t))
+            {
+                Kill(id, true); // reported in CopyDestroyedByDecoy
                 return;
             }
             if (t.destroyMe && t.damageDealt == 0)
@@ -541,6 +559,25 @@ namespace ColdWatersMP
                     {
                         Incoming inc;
                         if (_incoming.TryGetValue(Key(firerId, id), out inc)) { Duel.Log(Tag(inc.Firer, id) + " shot down by " + who); Kill(Key(firerId, id), true); }
+                    }
+                    return true;
+                }
+                case G_TORP_DECOYED:
+                {
+                    // From the player whose towed decoy destroyed a torpedo: (firer, number).
+                    int firerId = r.ReadInt32(); int id = r.ReadInt32();
+                    Opponent by = Duel.InGameById(from);
+                    string whose = by != null && Duel.Opps.Count > 1 ? by.Label + "'s" : "the opponent's";
+                    if (firerId == S.MyId)
+                    {
+                        Torpedo t;
+                        if (_own.TryGetValue(id, out t) && t != null && !t.destroyMe) t.destroyMe = true; // what DotMod's decoy does to it
+                        Duel.Log("Our torpedo #" + id + " was destroyed by " + whose + " towed decoy");
+                    }
+                    else
+                    {
+                        Incoming inc;
+                        if (_incoming.TryGetValue(Key(firerId, id), out inc)) { Duel.Log(Tag(inc.Firer, id) + " destroyed by " + whose + " towed decoy"); Kill(Key(firerId, id), true); }
                     }
                     return true;
                 }

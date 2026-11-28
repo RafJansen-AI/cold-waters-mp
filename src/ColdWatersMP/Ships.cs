@@ -148,6 +148,10 @@ namespace ColdWatersMP
             try
             {
                 bool destroyed = (want & 16) != 0, damaged = (want & 8) != 0, deployed = (want & 1) != 0, shortStay = (want & 2) != 0, active = (want & 4) != 0;
+                // Switch the noisemaker off first: DotMod's SetDecoyActive(false) does nothing on a damaged decoy, so a
+                // decoy knocked out by a torpedo stayed a working noisemaker here (duel 28 Nov: a phantom decoy 7 ft above
+                // the water kept pulling our torpedoes).
+                if (d.GetDecoyActive() && (!active || !deployed || damaged || destroyed)) ForceOff(d);
                 if (destroyed != d.isDestroyed) d.SetDestroyed(destroyed);
                 if (damaged != d.isDamaged) d.SetDamaged(damaged);
                 if (destroyed) return;
@@ -162,6 +166,20 @@ namespace ColdWatersMP
             }
             catch (System.Exception) { } // before DotMod's Start has run
             finally { Applying = false; }
+        }
+
+        /// <summary>The noisemaker off and out of the game's list, as SetDecoyActive(false) does, whatever DotMod's flags say.</summary>
+        static void ForceOff(DotModTowedDecoy d)
+        {
+            if (!d.isDamaged && !d.isDestroyed && d.GetDeployed()) { d.SetDecoyActive(false); if (!d.GetDecoyActive()) return; }
+            Noisemaker nm = Traverse.Create(d).Field("noisemaker").GetValue<Noisemaker>();
+            if (nm == null) return;
+            if (nm.particlesInitialised) nm.DestroyParticles();
+            nm.enabled = false;
+            SensorManager sm = UIFunctions.globaluifunctions.playerfunctions.sensormanager;
+            int i = sm.noisemakerObjects != null ? System.Array.IndexOf(sm.noisemakerObjects, nm) : -1;
+            if (i >= 0) sm.RemoveNoiseMakerFromArray(i);
+            if (nm.tacMapNoisemakerIcon != null) nm.tacMapNoisemakerIcon.gameObject.SetActive(false);
         }
 
         /// <summary>What the puppet's decoy really is in our game (duel 28 Nov: active per the owner, but our torpedoes
@@ -201,6 +219,46 @@ namespace ColdWatersMP
                     + (___vessel.vesselmovement.shipSpeed.z * 10f).ToString("F1") + " kt, decoy max " + ___vessel.databaseshipdata.towedDecoyMaxSpeed + ", array min " + ___vessel.databaseshipdata.towedArrayMinSpeed + ")");
             }
             return false;
+        }
+    }
+
+    /// <summary>A towed decoy destroys any torpedo inside its exploder range and is knocked out (Noisemaker.Update; the
+    /// player's own: KnockoutSubsystem TOWEDDECOY, one spare used). Target decides: in the owner's game the decoy works
+    /// as DotMod made it, and a copy it destroys is reported to the firer (Weapons G_TORP_DECOYED). In the firer's game
+    /// the copy of that decoy only seduces torpedoes; it destroys nothing (that would decide it twice, differently).
+    /// Before this the owner's decoy killed the copy and the real torpedo swam on (duel 28 Nov).</summary>
+    [HarmonyPatch(typeof(Noisemaker), "Update")]
+    static class Patch_Noisemaker_Update_TowedDecoy
+    {
+        struct State { public float Range; public List<Torpedo> Copies; }
+
+        static void Prefix(Noisemaker __instance, out State __state)
+        {
+            __state = new State { Range = -1f };
+            DatabaseCountermeasureData cm = __instance.databasecountermeasuredata;
+            if (!Duel.InDuel || cm == null || !cm.isTowedDecoy || cm.decoyExploderRange <= 0f || __instance.vessel == null) return;
+            if (Duel.IsPuppet(__instance.vessel))
+            {
+                __state.Range = cm.decoyExploderRange; // shared class data: back in the postfix, same frame
+                cm.decoyExploderRange = 0f;
+                return;
+            }
+            if (!__instance.vessel.playercontrolled || Torpedo.Torpedoes == null) return;
+            __state.Copies = new List<Torpedo>();
+            foreach (Torpedo t in Torpedo.Torpedoes) if (t != null && !t.destroyMe && Weapons.IsPuppetTorpedo(t)) __state.Copies.Add(t);
+        }
+
+        static void Postfix(Noisemaker __instance, State __state)
+        {
+            if (__state.Range >= 0f) __instance.databasecountermeasuredata.decoyExploderRange = __state.Range;
+            if (__state.Copies == null) return;
+            foreach (Torpedo t in __state.Copies) if (t != null && t.destroyMe) Weapons.CopyDestroyedByDecoy(t);
+        }
+
+        static System.Exception Finalizer(Noisemaker __instance, State __state, System.Exception __exception)
+        {
+            if (__state.Range >= 0f && __instance != null && __instance.databasecountermeasuredata != null) __instance.databasecountermeasuredata.decoyExploderRange = __state.Range;
+            return __exception;
         }
     }
 

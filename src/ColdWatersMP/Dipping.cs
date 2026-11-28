@@ -67,7 +67,7 @@ namespace ColdWatersMP
         // DotMod builds the player's helicopter without the cable (CreateAndPlaceAircraftMeshes skips
         // DippingSonarPosition for player aircraft), so the cable comes from the game's helicopter template, placed where
         // an AI copy of the same type has it.
-        const float CableDown = -0.35f, CableRate = 0.02f, DescentRate = 0.12f;
+        const float CableDown = -0.35f, CableRate = 0.02f, DescentRate = 0.12f, DipHeight = 1000.25f;
 
         class Gear { public LineRenderer Line; public float Height; }
         static readonly Dictionary<DotModPlayerAircraft, Gear> _gear = new Dictionary<DotModPlayerAircraft, Gear>();
@@ -88,7 +88,9 @@ namespace ColdWatersMP
                 float v = 0f;
                 try { GameObject t = Template(); Helicopter h = t != null ? t.GetComponent<Helicopter>() : null; if (h != null) v = h.dipaltitude; }
                 catch (System.Exception) { }
-                _dipAltitude = v > 1000.02f && v < 1003f ? v : 1000.15f;
+                // The template says 1001.75 (about 390 ft): far too high for a dip next to the AI's (Raf, 28 Nov). About
+                // 55 ft (0.25 units), so the 0.35-unit cable ends some 8 yd under water.
+                _dipAltitude = DipHeight;
                 Duel.Log("~Dipping altitude " + _dipAltitude.ToString("F3") + " (template " + v.ToString("F3") + ")");
             }
             return _dipAltitude;
@@ -342,6 +344,26 @@ namespace ColdWatersMP
             try { Dipping.HoverTick(___aircraft); }
             catch (System.Exception ex) { Duel.Log("~Hover failed: " + ex.Message); ___aircraft.DemandSpeed = 0f; ___aircraft.CurrentSpeed = 0f; }
             return false;
+        }
+    }
+
+    /// <summary>DotMod turns a player aircraft toward its next waypoint at 15 deg/s (AircraftTransit.Tick), so a
+    /// helicopter flies wide arcs like a plane (Raf, 28 Nov). A helicopter turns another 45 deg/s here: 60 in all, a
+    /// turn radius of about 80 yd at 160 kt instead of 340. Single player too.</summary>
+    [HarmonyPatch(typeof(AircraftTransit), "Tick")]
+    static class Patch_AircraftTransit_HeloTurn
+    {
+        const float ExtraTurn = 45f;
+
+        static void Prefix(DotModPlayerAircraft ___aircraft)
+        {
+            DotModPlayerAircraft a = ___aircraft;
+            if (a == null || a.databaseaircraftdata == null || a.databaseaircraftdata.aircraftType != "HELICOPTER") return;
+            List<Vector3> wps = a.Waypoints;
+            if (wps == null || wps.Count == 0) return;
+            Vector3 to = wps[0] - a.transform.position;
+            if (to.sqrMagnitude < 1e-6f) return;
+            a.transform.rotation = Quaternion.RotateTowards(a.transform.rotation, Quaternion.LookRotation(to), ExtraTurn * Time.deltaTime);
         }
     }
 

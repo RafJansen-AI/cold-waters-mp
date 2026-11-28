@@ -376,3 +376,17 @@ firer (only the results are synced), surface-ship MOSS (step 8), result line cou
    mod's decoy handling (Ghosts.cs) shows a MOSS to the other players as a ghost sub of the launcher's class, which for a
    ship launcher would be a ghost of its AI ship. Raf (28 Nov): the ship version probably shouldn't get the sub
    treatment. To decide later (plain noisemaker-style decoy, or a generic sub ghost).
+
+## Duel 28 Nov 07:13 (Kilo vs Adelaide with S-70B): towed decoy and helicopter
+- Seen working: SAM launch, flight and shoot-down visible to the helicopter's owner; dipping cable shown; towed decoy
+  seduced a torpedo ("first locked on a TOWED DECOY" in the Kilo's log).
+- Towed decoy rule (read in `Noisemaker.Update`): an active towed decoy destroys any torpedo inside its exploder range
+  and is knocked out (player: KnockoutSubsystem TOWEDDECOY, one of 10 spares). In the duel the Adelaide's decoy killed
+  the *copy* in the Adelaide's game; the Kilo's real torpedo swam on. And the knocked-out decoy stayed a working
+  noisemaker in the Kilo's game (DotMod's SetDecoyActive(false) does nothing on a damaged decoy): a phantom decoy 7 ft
+  above the water kept pulling torpedoes. Fixed: owner's game decides and reports (G_TORP_DECOYED 29, firer sets
+  destroyMe on its torpedo); the copy decoy in the firer's game only seduces (exploder range 0 during its Update); a
+  decoy turned off/stowed/damaged by state is switched off by hand first.
+- Helicopter: dip height 0.25 units (~55 ft) instead of the template's 1.75 (~390 ft); helicopters turn 60 deg/s in
+  transit (DotMod 15); the opponent gets the AI's dipping icon on the map (PlaceHazardIconOnMap(pos, 6)) when the
+  cable is down.
