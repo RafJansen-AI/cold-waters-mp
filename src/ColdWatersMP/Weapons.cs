@@ -79,6 +79,30 @@ namespace ColdWatersMP
 
         static readonly HashSet<Torpedo> _decoyedCopies = new HashSet<Torpedo>();
 
+        /// <summary>Team battles: copies of a team-mate's weapons are spawned as enemy weapons (whichNavy 1) like everyone
+        /// else's. Our air defence (CIWS, chaff, missile warning, SAM targeting) engages whichNavy 1 missiles, so it would
+        /// shoot down a team-mate's Harpoons flying past. While that code runs, team-mates' copies count as ours (0).
+        /// Returns the copies changed, for RestoreAllies.</summary>
+        public static List<Torpedo> MaskAllies()
+        {
+            if (!Duel.InDuel || _incoming.Count == 0) return null;
+            List<Torpedo> changed = null;
+            foreach (Incoming inc in _incoming.Values)
+            {
+                if (inc.T == null || inc.T.whichNavy != 1 || !Duel.IsAlly(inc.Firer)) continue;
+                inc.T.whichNavy = 0;
+                if (changed == null) changed = new List<Torpedo>();
+                changed.Add(inc.T);
+            }
+            return changed;
+        }
+
+        public static void RestoreAllies(List<Torpedo> changed)
+        {
+            if (changed == null) return;
+            foreach (Torpedo t in changed) if (t != null) t.whichNavy = 1;
+        }
+
         /// <summary>Target side: our own towed decoy destroyed this copy (Noisemaker.Update, decoy exploder range). Our game
         /// decides, as for a hit: the firer destroys its real torpedo.</summary>
         public static void CopyDestroyedByDecoy(Torpedo t)
@@ -706,6 +730,39 @@ namespace ColdWatersMP
             Launched = null;
             return __exception;
         }
+    }
+
+    /// <summary>Team-mates' missile copies are not threats to our air defence (Weapons.MaskAllies).</summary>
+    [HarmonyPatch]
+    static class Patch_AirDefence_IgnoreAllies
+    {
+        static IEnumerable<System.Reflection.MethodBase> TargetMethods()
+        {
+            string[][] m = {
+                new[] { "Player_AntiMissileGuns", "FixedUpdate" }, new[] { "Player_AntiMissileGuns", "ManualChaff" },
+                new[] { "Player_AntiMissileGuns", "PlayerMissileWarning" }, new[] { "Player_AntiAirMissile", "Update" },
+                new[] { "Player_AutoMissile", "Update" }, new[] { "Player_AutoMissile", "LaunchMissile" } };
+            foreach (string[] p in m)
+            {
+                System.Reflection.MethodBase mb = AccessTools.Method(AccessTools.TypeByName(p[0]), p[1]);
+                if (mb != null) yield return mb;
+            }
+        }
+
+        static void Prefix(out List<Torpedo> __state) { __state = Weapons.MaskAllies(); }
+        static System.Exception Finalizer(List<Torpedo> __state, System.Exception __exception) { Weapons.RestoreAllies(__state); return __exception; }
+    }
+
+    /// <summary>Our own SAM choosing a missile to intercept (Torpedo.CheckTargetInSensorCone, intercept mode MISSILE,
+    /// whichNavy differs from its own): not a team-mate's.</summary>
+    [HarmonyPatch(typeof(Torpedo), "CheckTargetInSensorCone")]
+    static class Patch_SamTarget_IgnoreAllies
+    {
+        static void Prefix(Torpedo __instance, out List<Torpedo> __state)
+        {
+            __state = __instance.antiAirMode && __instance.whichNavy == 0 && !Weapons.IsPuppetTorpedo(__instance) ? Weapons.MaskAllies() : null;
+        }
+        static System.Exception Finalizer(List<Torpedo> __state, System.Exception __exception) { Weapons.RestoreAllies(__state); return __exception; }
     }
 
     /// <summary>Player SAM launch (WeaponSource.FireAAM: Instantiate + InitialiseTorpedo, like FireTube). Sent so the

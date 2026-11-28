@@ -390,3 +390,16 @@ firer (only the results are synced), surface-ship MOSS (step 8), result line cou
 - Helicopter: dip height 0.25 units (~55 ft) instead of the template's 1.75 (~390 ft); helicopters turn 60 deg/s in
   transit (DotMod 15); the opponent gets the AI's dipping icon on the map (PlaceHazardIconOnMap(pos, 6)) when the
   cable is down.
+
+## 28 Nov evening: vessel picker, result line, ships in team battles
+- **Vessel picker** (`VesselPicker.cs`): on the multiplayer selection screen (the museum viewer, `MissionManager.SelectShip`)
+  a panel lists all vessels with a search box and nation / sub / ship filters; a click jumps the viewer there as
+  next/previous do (`currentShipForSelection`, `currentMuseumItem`, `BackgroundMuseumRender(false)`); the game's
+  Select button takes it. Untested.
+- **Result line** counts every weapon: torpedoes/missiles (helicopter drops now count) and hits always; shells, mortar
+  rounds, SAMs, missiles shot down, torpedoes stopped by towed decoys, helicopters shot down when used. Shell hits are
+  not counted (no hit message for rounds).
+- **Team battles with ships** (read in code): placement 1 nm side by side is fine; team-mates' helicopters are not air
+  targets. Found: every copy of another player's weapon is an enemy weapon (whichNavy 1), team-mates' too, so our CIWS,
+  chaff, missile warning, Scan Air, DotMod's auto SAM and our SAM's targeting would engage a team-mate's missiles.
+  Now team-mates' copies count as ours (0) only while that code runs. Untested; check in a 2v1 with ships.
