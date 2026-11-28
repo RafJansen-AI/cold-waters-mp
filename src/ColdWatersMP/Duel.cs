@@ -289,6 +289,7 @@ namespace ColdWatersMP
             InGame.Clear();
             _ownAtStations = false; _heldStations = null; // an opponent's AtStations may already be true: they can be quicker
             Weapons.Reset();
+            Dipping.Reset();
             if (!Active || !GameDataManager.missionMode) return true;
             SyncRoster();
             if (!Session.IsHost && !_releasingLoad) Match.AppliedSeq = -1; // set again by ClientApply below
@@ -986,6 +987,7 @@ namespace ColdWatersMP
             if (Weapons.OnMessage(type, r)) return;
             if (Rounds.OnMessage(type, r)) return;
             if (Missiles.OnMessage(type, r)) return;
+            if (Dipping.OnMessage(type, r)) return;
             if (EnvSync.OnMessage(type, r)) return;
             if (Match.OnMessage(type, r)) return;
             if (TimeSync.OnMessage(type, r)) return;
