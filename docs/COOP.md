@@ -138,9 +138,19 @@ first.
 6. Mission flow (spectator, mission end, result), friendly contacts, shared picture option.
 7. Ships as co-op players (surface work done for duels carries over).
 
-## Open questions for Raf
-- Two players only, or up to four (more targets per AI decision)?
-- Arcade (shared contacts) or hardcore (own sensors only), or a setting?
-- Friendly fire on?
-- When one player sinks: spectate, or end the mission for both?
-- Which missions matter most (hunt a convoy, ASW against AI subs, escort)?
+## Decisions (Raf, 28 Nov)
+- **Players:** up to 4 if possible, 2 if that is the limit. Design for 4: the "whose turn" swap picks among up to four
+  targets per AI unit; the enemy list (15) must fit the AI plus up to three player puppets (fewer decoy ghosts per
+  player in co-op, or none).
+- **Contact picture:** a setting (shared / separate); separate is fine if only one. Same choice and code as team
+  battles' arcade / hardcore.
+- **Friendly fire: "smart".** On for weapons that hit vessels (torpedoes, shells, depth bombs: a stray torpedo can
+  hit your partner, as in single player), off for air defence: no shooting down your partner's missiles or
+  helicopters (`Weapons.MaskAllies` already does the missile part for team battles; partners' helicopters are not
+  air targets, `Duel.IsAlly`).
+- **A player sinks:** the mission goes on; the lost player spectates (free camera / follow the partner) until it ends.
+  Mission end checks must count all players.
+- **Missions:** custom missions first (DotMod's mission editor, `EditorMission` / `DotModEditorMenuController`);
+  the stock single missions should then be easy. Check: how editor missions define the player's start and vessel
+  (for extra start positions) and how they are loaded (the host sends the mission file or its name; both players need
+  the same file, like the DotMod data check).
