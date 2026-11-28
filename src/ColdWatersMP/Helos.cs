@@ -275,6 +275,17 @@ namespace ColdWatersMP
         }
     }
 
+    /// <summary>DotMod bug: when a player aircraft is destroyed, AircraftDestroyed.OnEnter empties its map icon's trail
+    /// (TacticalMap.ClearMapContactTrail(icon, false) dequeues every marker but leaves the move count) and returns the icon
+    /// to the pool, but Update keeps calling UpdateTacMapIcon, which dequeues from the empty queue: an exception every
+    /// frame and DotMod's error screen (duel 28 Nov, helicopter shot down by an Igla). Single player too. A destroyed
+    /// aircraft has no icon to update.</summary>
+    [HarmonyPatch(typeof(DotModPlayerAircraft), "UpdateTacMapIcon")]
+    static class Patch_UpdateTacMapIcon_Destroyed
+    {
+        static bool Prefix(DotModPlayerAircraft __instance) { return !__instance.IsDestroyed; }
+    }
+
     [HarmonyPatch(typeof(UIFunctions), "DestroyAllAircraft")]
     static class Patch_DestroyAllAircraft_Helos
     {

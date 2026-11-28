@@ -1,7 +1,7 @@
 // Cold Waters MP - a dipping sonar for the player's helicopter (docs/SURFACE.md). C# 5 / .NET 3.5.
 // DotMod's player helicopter (DotModPlayerAircraft) has no sensors: it flies waypoints and drops torpedoes. The AI
 // helicopter dips (Helicopter.CheckDippingSonar) with its type's sonar (SH-60B AQS-13F, Helix, Hormone, Lynx, Z-9 ...).
-// Here a player helicopter that hovers (airborne, almost no speed) dips: after each of the game's own sonar sweeps
+// Here a player helicopter with a dipping sonar hovers at its last waypoint (instead of DotMod's orbit) and dips: after each of the game's own sonar sweeps
 // (SensorManager.SonarCheck, every 8 s of game time) it listens from its own position with the sums the game uses for a
 // dipping AI helicopter (SensorManager.CheckSingleSonar, HELICOPTER branch): spreading and attenuation loss, sea ambient
 // (a helicopter has no own noise), layer bonus (a dip counts as above the layer), convergence zone bonus, masking by
@@ -22,7 +22,6 @@ namespace ColdWatersMP
     public static class Dipping
     {
         public const byte G_DIP_PING = 25;
-        const float HoverSpeed = 3f;     // DotModPlayerAircraft.CurrentSpeed below this: hovering (dipping)
         const float HoldSeconds = 12f;   // keep a helicopter contact this long without a new detection
 
         static readonly Dictionary<int, float> _heldUntil = new Dictionary<int, float>(); // enemy index -> time
@@ -37,6 +36,18 @@ namespace ColdWatersMP
 
         public static void Reset() { _heldUntil.Clear(); _dipping.Clear(); }
 
+        /// <summary>A helicopter type with a dipping sonar (aircraft data PassiveSonarModel).</summary>
+        public static bool HasDippingSonar(DotModPlayerAircraft a)
+        {
+            return a != null && a.databaseaircraftdata != null && a.databaseaircraftdata.aircraftType == "HELICOPTER" && a.databaseaircraftdata.passiveSonarID >= 0;
+        }
+
+        /// <summary>Hovering at its waypoint (DotMod's orbit state, held still by Patch_AircraftOrbit_Hover).</summary>
+        public static bool IsHovering(DotModPlayerAircraft a)
+        {
+            return a.IsAirborne && !a.IsDestroyed && HasDippingSonar(a) && a.State == "AircraftOrbit";
+        }
+
         /// <summary>SonarCheck postfix: every hovering player helicopter with a sonar listens (or pings) once.</summary>
         public static void AfterSonarCheck(SensorManager sm)
         {
@@ -47,7 +58,7 @@ namespace ColdWatersMP
             foreach (DotModPlayerAircraft a in all)
             {
                 if (a == null || a.databaseaircraftdata == null) continue;
-                bool dip = a.IsAirborne && !a.IsDestroyed && a.CurrentSpeed < HoverSpeed && a.databaseaircraftdata.passiveSonarID >= 0;
+                bool dip = IsHovering(a);
                 bool was;
                 _dipping.TryGetValue(a, out was);
                 if (dip != was)
@@ -123,6 +134,7 @@ namespace ColdWatersMP
                 float land = sm.GetLandMaskingPenalty(ht, v.transform);
                 if (land > 0f) { signal /= land; if (active) act /= land; }
                 if (act > signal) signal = act;
+                Duel.Log("~Dip listen: vessel " + i + " at " + (m / 914.4f).ToString("F1") + " kyd, signal " + signal.ToString("F1") + " (threshold " + threshold.ToString("F1") + ", noise " + noise.ToString("F1") + ", layer " + layer.ToString("+0.0;-0.0") + ", CZ " + cz.ToString("+0.0;-0.0") + ", land x" + land.ToString("F2") + (active ? ", active " + act.ToString("F1") : "") + ")");
                 if (signal <= threshold) continue;
                 found++;
                 bool already = sm.detectedByPlayer != null && i < sm.detectedByPlayer.Length && sm.detectedByPlayer[i];
@@ -176,6 +188,22 @@ namespace ColdWatersMP
     static class Patch_SonarCheck_Dipping
     {
         static void Postfix(SensorManager __instance) { try { Dipping.AfterSonarCheck(__instance); } catch (System.Exception ex) { Duel.Log("~Dipping sonar failed: " + ex.Message); } }
+    }
+
+    /// <summary>DotMod's player helicopter circles its last waypoint (AircraftOrbit.Tick: RotateAround at cruise speed)
+    /// and never stops, so it could never dip (Raf, 28 Nov). A helicopter with a dipping sonar hovers there instead:
+    /// speed 0, no orbit; while it hovers it dips (Dipping.IsHovering). A new waypoint moves it on as before.
+    /// Single player too.</summary>
+    [HarmonyPatch(typeof(AircraftOrbit), "Tick")]
+    static class Patch_AircraftOrbit_Hover
+    {
+        static bool Prefix(DotModPlayerAircraft ___aircraft)
+        {
+            if (!Dipping.HasDippingSonar(___aircraft)) return true;
+            ___aircraft.DemandSpeed = 0f;
+            ___aircraft.CurrentSpeed = 0f;
+            return false;
+        }
     }
 
     /// <summary>The ship's own sweep does not drop a contact the helicopter's dipping sonar holds.</summary>

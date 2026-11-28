@@ -337,6 +337,14 @@ game lets any player torpedo home on its own vessel (the player is always in the
   target", Scan Air lines to it, "We shot down ...'s helicopter", "Our helicopter was shot down" in the owner's log.
   Watch: does the opponent's puppet (an AI ship) also fire DotMod SAMs at the owner's helicopter in the owner's game
   (a second, local kill source)? Is the map icon always shown, or only when detected?
+  **Duel 28 Nov (Igla sub vs Adelaide with S-70B, Z-9):** three kills, all reported to the owner. Fixed after it:
+  DotMod error screen on the owner's side at the kill (DotMod bug: `AircraftDestroyed` empties the map icon trail but
+  `UpdateTacMapIcon` keeps dequeuing; now skipped for a destroyed aircraft, single player too); the owner saw no SAM
+  (`WeaponSource.FireAAM` was not sent; now sent like a launch with a SAM flag: shown, not counted, no transient).
+- **Dipping needs a hover**: DotMod's helicopter circles its last waypoint forever (`AircraftOrbit.Tick`), so it never
+  dipped, and my "speed below 3" test was meaningless (DotMod speed is in game units: it counted as dipping all flight).
+  A helicopter with a dipping sonar now hovers at its last waypoint instead of orbiting, and dips while it hovers
+  (state `AircraftOrbit`). New log line every sweep while dipping: `~Dip listen: vessel N at X kyd, signal ...`.
 Still open: SAM launches and CIWS fire visible to the
 firer (only the results are synced), surface-ship MOSS (step 8), result line counts torpedoes only, trim diagnostics.
 

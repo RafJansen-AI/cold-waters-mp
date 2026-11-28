@@ -78,19 +78,23 @@ namespace ColdWatersMP
 
         public static void OnPlayerFired(Torpedo t) { OnPlayerFired(t, false, null); }
 
-        public static void OnPlayerFired(Torpedo t, bool payload, Torpedo carrier)
+        public static void OnPlayerFired(Torpedo t, bool payload, Torpedo carrier) { OnPlayerFired(t, payload, carrier, false); }
+
+        /// <param name="sam">An anti-air missile (WeaponSource.FireAAM): shown to the others, not counted as a shot at
+        /// them, no launch transient.</param>
+        public static void OnPlayerFired(Torpedo t, bool payload, Torpedo carrier, bool sam)
         {
             if (!Active || t == null) return;
             int id = _nextId++;
             _own[id] = t; _ownIds[t] = id;
             bool decoy = Ghosts.IsDecoy(t.databaseweapondata);
-            if (!payload && !decoy) OwnFired++;
+            if (!payload && !decoy && !sam) OwnFired++;
             int weaponId = t.databaseweapondata.weaponID;
             Vector3 pos = t.transform.position; Vector3 eul = t.transform.eulerAngles;
             int carrierId = -1;
             if (carrier != null) _ownIds.TryGetValue(carrier, out carrierId);
-            S.SendGame(G_TORP_SPAWN, w => { w.Write(id); w.Write(weaponId); WriteV3(w, pos); WriteV3(w, eul); w.Write(payload); w.Write(carrierId); }, true);
-            Duel.Log("Fired torpedo #" + id + " (" + t.databaseweapondata.weaponName + ")");
+            S.SendGame(G_TORP_SPAWN, w => { w.Write(id); w.Write(weaponId); WriteV3(w, pos); WriteV3(w, eul); w.Write(payload); w.Write(carrierId); w.Write(sam); }, true);
+            Duel.Log("Fired " + (sam ? "SAM" : "torpedo") + " #" + id + " (" + t.databaseweapondata.weaponName + ")");
         }
 
         static void SendOwnTorpedoStates()
@@ -139,7 +143,7 @@ namespace ColdWatersMP
 
         // ---------- target side ----------
 
-        static void SpawnPuppetTorpedo(Opponent firer, int id, int weaponId, Vector3 pos, Vector3 eul, bool payload)
+        static void SpawnPuppetTorpedo(Opponent firer, int id, int weaponId, Vector3 pos, Vector3 eul, bool payload, bool sam)
         {
             if (firer == null || firer.Puppet == null) return;
             int key = Key(firer.Id, id);
@@ -167,6 +171,13 @@ namespace ColdWatersMP
                 // Never shown as a weapon here: the opponent's decoy becomes a ghost sub.
                 Duel.Log("~" + (Duel.Opps.Count > 1 ? firer.Label : "Opponent") + " launched decoy #" + id + " (" + wd.weaponName + ")");
                 try { Ghosts.OnDecoySpawned(firer, key, t, wd); } catch (System.Exception ex) { Duel.Log("~Ghost start failed: " + ex.Message); }
+                return;
+            }
+            if (sam)
+            {
+                // Their anti-air missile, going for an aircraft (ours, here): shown, nothing more. Their game decides the
+                // hit (Helos G_HELO_DOWN); the copy ends with theirs.
+                Duel.Log((Duel.Opps.Count > 1 ? firer.Label : "Opponent") + " fired SAM #" + id + " (" + wd.weaponName + ")");
                 return;
             }
             if (!payload) OppFired++;
@@ -426,7 +437,7 @@ namespace ColdWatersMP
             {
                 case G_TORP_SPAWN:
                 {
-                    int id = r.ReadInt32(); int wid = r.ReadInt32(); Vector3 p = ReadV3(r); Vector3 e = ReadV3(r); bool payload = r.ReadBoolean(); int carrierId = r.ReadInt32();
+                    int id = r.ReadInt32(); int wid = r.ReadInt32(); Vector3 p = ReadV3(r); Vector3 e = ReadV3(r); bool payload = r.ReadBoolean(); int carrierId = r.ReadInt32(); bool sam = r.ReadBoolean();
                     if (wid < 0 || wid >= UIFunctions.globaluifunctions.database.databaseweapondata.Length) { Duel.Log("Ignored a torpedo with an unknown weapon number " + wid); return true; }
                     Opponent firer = Duel.InGameById(from);
                     Incoming carrier;
@@ -436,7 +447,7 @@ namespace ColdWatersMP
                         Duel.Log(Tag(carrier.Firer, carrierId) + " released its payload");
                         Kill(Key(from, carrierId), false); // the payload takes over from here
                     }
-                    if (Duel.InDuel && firer != null) SpawnPuppetTorpedo(firer, id, wid, p, e, payload);
+                    if (Duel.InDuel && firer != null) SpawnPuppetTorpedo(firer, id, wid, p, e, payload, sam);
                     return true;
                 }
                 case G_TORP_STATE:
@@ -633,6 +644,29 @@ namespace ColdWatersMP
         {
             InFireTube = false;
             Launched = null;
+            return __exception;
+        }
+    }
+
+    /// <summary>Player SAM launch (WeaponSource.FireAAM: Instantiate + InitialiseTorpedo, like FireTube). Sent so the
+    /// other games show the missile; before this the helicopter's owner saw no SAM and no shoot-down (Raf, 28 Nov).</summary>
+    [HarmonyPatch(typeof(WeaponSource), "FireAAM")]
+    static class Patch_FireAAM
+    {
+        static void Prefix() { Patch_FireTube.InFireTube = true; Patch_FireTube.Launched = null; }
+
+        static void Postfix()
+        {
+            Patch_FireTube.InFireTube = false;
+            Torpedo t = Patch_FireTube.Launched;
+            Patch_FireTube.Launched = null;
+            if (Duel.InDuel && t != null) Weapons.OnPlayerFired(t, false, null, true);
+        }
+
+        static System.Exception Finalizer(System.Exception __exception)
+        {
+            Patch_FireTube.InFireTube = false;
+            Patch_FireTube.Launched = null;
             return __exception;
         }
     }
