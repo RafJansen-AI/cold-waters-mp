@@ -403,3 +403,9 @@ firer (only the results are synced), surface-ship MOSS (step 8), result line cou
   targets. Found: every copy of another player's weapon is an enemy weapon (whichNavy 1), team-mates' too, so our CIWS,
   chaff, missile warning, Scan Air, DotMod's auto SAM and our SAM's targeting would engage a team-mate's missiles.
   Now team-mates' copies count as ours (0) only while that code runs. Untested; check in a 2v1 with ships.
+- **Duel 28 Nov 18:28 (Barbel vs Udaloy with Ka-27):** hover, low dip and cable fine. Fixed after it: no dip icon on the
+  sub's map (PlaceHazardIconOnMap type 6 lives AddFields.dippingListeningTimer seconds, which the AI sets first; 0 =
+  gone at once; now 40 s, renewed while dipping), and the dip did not improve the solution (CalculatePlayerTMA works
+  from the ship's own bearing change; a passive dip now adds a cross-fix: up to +15% per detection and a smaller range
+  error, scaled by the sine of the angle between the ship's and the helicopter's bearings, capped at the game's TMA
+  limit; log "~Dipping cross-fix"). Balance of the 15% later.

@@ -24,7 +24,7 @@ namespace ColdWatersMP
         class Remote
         {
             public GameObject Go; public int AircraftId, Owner, Slot;
-            public Vector3 Pos; public Quaternion Rot; public float Last, Cable;
+            public Vector3 Pos; public Quaternion Rot; public float Last, Cable, IconAt = -100f;
             public List<Transform> Rotors = new List<Transform>();
             public Helicopter H;          // the game's helicopter component (in the enemy list when Target)
             public bool Target;           // registered as an enemy air target
@@ -224,13 +224,31 @@ namespace ColdWatersMP
                 // (Helicopter.FixedUpdate: TacticalMap.PlaceHazardIconOnMap(position, 6)), seen even without contact.
                 if (cab <= -0.349f && r.Cable > -0.349f)
                 {
-                    try { UIFunctions.globaluifunctions.playerfunctions.sensormanager.tacticalmap.PlaceHazardIconOnMap(p, 6); Duel.Log("~Remote helicopter is dipping: map icon placed"); }
-                    catch (System.Exception ex) { Duel.Log("~Dipping icon failed: " + ex.Message); }
+                    PlaceDipIcon(r, p);
                 }
                 r.Cable = cab;
                 try { Dipping.ShowCable(r.H, cab); } catch (System.Exception) { }
             }
             return true;
+        }
+
+        const float DipIconSeconds = 40f;
+
+        /// <summary>PlaceHazardIconOnMap type 6 gives the icon a lifetime of AddFields.dippingListeningTimer seconds, which
+        /// the AI sets to its listening time (30-45 s) just before; left at 0 the icon expired at once (Raf, 28 Nov: no
+        /// icon). Placed again while the cable stays down.</summary>
+        static void PlaceDipIcon(Remote r, Vector3 pos)
+        {
+            float was = AddFields.dippingListeningTimer;
+            try
+            {
+                AddFields.dippingListeningTimer = DipIconSeconds;
+                UIFunctions.globaluifunctions.playerfunctions.sensormanager.tacticalmap.PlaceHazardIconOnMap(pos, 6);
+                if (r.IconAt < 0f) Duel.Log("~Remote helicopter is dipping: map icon placed");
+                r.IconAt = Time.time;
+            }
+            catch (System.Exception ex) { Duel.Log("~Dipping icon failed: " + ex.Message); }
+            finally { AddFields.dippingListeningTimer = was; }
         }
 
         static void Remove(int key, string why)
@@ -271,6 +289,7 @@ namespace ColdWatersMP
                     continue;
                 }
                 if (Time.time - r.Last > 5f) { if (stale == null) stale = new List<int>(); stale.Add(kv.Key); continue; }
+                if (r.Cable <= -0.349f && Time.time - r.IconAt > DipIconSeconds) PlaceDipIcon(r, r.Pos); // still dipping: renew the icon
                 Transform t = r.Go.transform;
                 if (Vector3.Distance(t.position, r.Pos) > 2f) t.position = r.Pos; // > ~150 yd: snap
                 else t.position = Vector3.Lerp(t.position, r.Pos, Mathf.Min(1f, Time.deltaTime * 6f));
