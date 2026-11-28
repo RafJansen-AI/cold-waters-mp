@@ -409,3 +409,6 @@ firer (only the results are synced), surface-ship MOSS (step 8), result line cou
   from the ship's own bearing change; a passive dip now adds a cross-fix: up to +15% per detection and a smaller range
   error, scaled by the sine of the angle between the ship's and the helicopter's bearings, capped at the game's TMA
   limit; log "~Dipping cross-fix"). Balance of the 15% later.
+  Changed the same evening (Raf: the helicopter is a sensor of its own): no cross-fix geometry; every passive dip
+  detection adds 0.5 % per dB over the threshold (3-12 % per 8 s sweep) and shrinks the range error, whether the ship
+  hears the contact or not (log "~Dipping solution"). Active dips use the game's active solution.

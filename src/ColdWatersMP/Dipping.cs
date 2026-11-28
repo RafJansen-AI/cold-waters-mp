@@ -284,39 +284,35 @@ namespace ColdWatersMP
                 {
                     if (!already) sm.ContactDetected(i, "SONAR");
                     _calculateTma.Invoke(sm, new object[] { i, active });
-                    if (!active) CrossFix(sm, i, v, hp);
+                    if (!active) OwnSolution(sm, i, signal - threshold);
                 }
                 catch (System.Exception ex) { Duel.Log("~Dipping sonar contact update failed: " + ex.Message); }
                 if (!already) Duel.Log("~Dipping sonar (" + (active ? "active" : "passive") + ") detected vessel " + i + " (" + v.databaseshipdata.shipPrefabName + ") at " + (m / 914.4f).ToString("F1") + " kyd, signal " + signal.ToString("F1") + " (layer " + layer.ToString("+0.0;-0.0") + ", CZ " + cz.ToString("+0.0;-0.0") + ")");
             }
         }
 
-        const float CrossFixGain = 15f;   // solution % per passive dip detection at a 90 deg cross-bearing (balance: later)
-        static float _crossLogAt;
+        const float MinGain = 3f, MaxGain = 12f;   // solution % per passive dip detection (every sweep, 8 s); balance later
+        static float _solLogAt;
 
-        /// <summary>The game's TMA (CalculatePlayerTMA) works out a passive solution from the bearing change seen from our
-        /// own ship, so a dip added nothing (Raf, 28 Nov: hovering over the sub, the solution stayed at 46-48%). A dip is a
-        /// second listening point: its bearing crosses the ship's. The better the crossing (sin of the angle between the two
-        /// bearings), the more the solution quality rises and the range error shrinks, up to the game's TMA limit.</summary>
-        static void CrossFix(SensorManager sm, int i, Vessel v, Vector3 heloPos)
+        /// <summary>The helicopter is a sensor of its own (Raf, 28 Nov): every passive detection builds the solution, whether
+        /// the ship hears the contact or not. The game's TMA (CalculatePlayerTMA) only works from the bearing change seen
+        /// from the ship, so it added nothing (hovering over the sub, the solution stayed at 46-48%). Gain by how far the
+        /// signal is above the detection threshold, half a percent per dB, 3 to 12 % per sweep; the range error shrinks a
+        /// little each time. Capped at the game's TMA limit.</summary>
+        static void OwnSolution(SensorManager sm, int i, float margin)
         {
-            Vessel own = GameDataManager.playervesselsonlevel[0];
-            Vector3 a = v.transform.position - own.transform.position, b = v.transform.position - heloPos;
-            a.y = 0f; b.y = 0f;
-            if (a.sqrMagnitude < 1e-6f || b.sqrMagnitude < 1e-6f) return;
-            float angle = Vector3.Angle(a, b); // 0..180; a cross-fix is as good from either side
-            float k = Mathf.Sin(angle * Mathf.Deg2Rad);
             float[] q = sm.solutionQualityOfContacts, err = sm.solutionRangeErrors;
             if (q == null || i >= q.Length) return;
             float cap = UIFunctions.globaluifunctions.playerfunctions.maximumPlayerTMA;
             if (cap <= 0f) cap = 100f;
+            float gain = Mathf.Clamp(margin * 0.5f, MinGain, MaxGain);
             float before = q[i];
-            q[i] = Mathf.Min(cap, q[i] + CrossFixGain * k);
-            if (err != null && i < err.Length) err[i] = Mathf.Lerp(err[i], 1f, 0.5f * k);
-            if (Time.time - _crossLogAt > 20f)
+            q[i] = Mathf.Min(cap, q[i] + gain);
+            if (err != null && i < err.Length) err[i] = Mathf.Lerp(err[i], 1f, 0.25f);
+            if (Time.time - _solLogAt > 20f)
             {
-                _crossLogAt = Time.time;
-                Duel.Log("~Dipping cross-fix on vessel " + i + ": bearings cross at " + angle.ToString("F0") + " deg, solution " + before.ToString("F0") + " -> " + q[i].ToString("F0") + "% (limit " + cap.ToString("F0") + ")");
+                _solLogAt = Time.time;
+                Duel.Log("~Dipping solution on vessel " + i + ": +" + gain.ToString("F0") + "% (signal " + margin.ToString("F0") + " dB over threshold), " + before.ToString("F0") + " -> " + q[i].ToString("F0") + "% (limit " + cap.ToString("F0") + ")");
             }
         }
 
